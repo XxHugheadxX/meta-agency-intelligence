@@ -4,7 +4,7 @@ Este documento distingue el estado observable en el repositorio del diseño de
 producto previsto. La conexión de cuentas reales sigue prohibida hasta superar
 los gates de `docs/SECURITY_REQUIREMENTS.md` y `docs/PRODUCT_ROADMAP.md`.
 
-## Estado actual (hardening)
+## Estado actual
 
 El punto de entrada es `src/index.ts`, que sirve MCP por HTTP o stdio. La
 integración con Meta está en `src/meta/`; autenticación, sesiones y OAuth en
@@ -25,6 +25,18 @@ workspace y activos autorizados. Estos controles están implementados en el
 código, pero sus gates de producción, migración completa y pruebas de entorno
 real siguen siendo trabajo pendiente.
 
+`src/agency/` contiene histórico tenant-scoped, reporting semanal/mensual,
+Excel editable, segmentación, recomendaciones e ingesta inicial de Ads
+Insights. La ingesta usa una interfaz que sólo expone GET, exige autorización
+de cuenta antes de la primera llamada, pagina con límites de filas/páginas,
+normaliza métricas y sólo avanza el watermark cuando la ventana completa quedó
+persistida. Los checkpoints y el histórico tienen implementaciones en memoria
+y Firestore; las pruebas usan exclusivamente respuestas sintéticas.
+
+Todavía no existe un scheduler ni un worker desplegado que resuelva bindings y
+credenciales mediante identidad de workload. Tampoco se implementó la ingesta
+orgánica de Pages/Instagram ni se validaron contratos contra una Meta test app.
+
 ## Arquitectura objetivo
 
 ```text
@@ -44,7 +56,7 @@ Analytics / period comparison / recommendations
         └── Excel export (separate capability)
 ```
 
-Los módulos nuevos deben vivir bajo `src/agency/`: `historical-data`,
+Los módulos nuevos deben vivir bajo `src/agency/`: `ingestion`, `historical-data`,
 `analytics`, `reporting`, `segmentation`, `recommendations`, `excel` y
 `scheduler`. El scheduler futuro ejecutará jobs con identidad de workload y
 tenant inmutable; no reutilizará credenciales humanas ni habilitará mutaciones.

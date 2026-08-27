@@ -9,7 +9,9 @@ A Model Context Protocol server that brokers Meta Ads API access for advertising
 - **Stack**: Node 20.10+, TypeScript (ESM), Express 5, vitest, Pino, Zod, Firestore. MCP SDK 1.29 (`registerTool` API + `ToolAnnotations`).
 - **Entry**: [src/index.ts](src/index.ts) → [src/transport/http.ts](src/transport/http.ts).
 - **Deploy**: push to `main` triggers [.github/workflows/deploy.yml](.github/workflows/deploy.yml). PRs trigger [.github/workflows/ci.yml](.github/workflows/ci.yml).
-- **License**: MIT. **Repository is public on GitHub.**
+- **License**: MIT. The working repository is the private
+  `XxHugheadxX/meta-agency-intelligence`; the public `meta-ads-mcp` repository
+  is read-only upstream reference. Never push product branches to upstream.
 
 ## Local execution rule: no npm
 
@@ -45,7 +47,9 @@ items as authorization to connect real accounts or broaden write permissions.
 
 ## ⚠️ Pre-deploy / pre-commit safety rule
 
-**This repo is public.** Anything pushed to GitHub is permanent and indexed by search engines and bots within seconds. Treat every commit as a one-way door.
+Treat every commit and push as a one-way door even while the working repository
+is private. A future visibility change, collaborator, workflow, artifact or
+misconfigured secret can expose committed history.
 
 Before **any** `git commit -m`, `git push`, `gcloud run deploy`, `docker push`, `npm publish`, or PR merge, the following must be true:
 

@@ -8,7 +8,9 @@ trabajan en ramas y no se fusionan automáticamente.
 
 ## Fase 0 — Auditoría y hardening
 
-**Estado:** en progreso avanzado en `security/hardening-v1`.
+**Estado de código:** hardening Critical/High implementado y testeado en
+`security/hardening-v1`. Los gates operativos y la revisión humana siguen
+pendientes.
 
 Entregables:
 
@@ -32,6 +34,10 @@ Salida pendiente:
 
 ## Fase 1 — Fundaciones de agencia
 
+**Estado:** primera versión implementada y testeada bajo `src/agency/`; faltan
+la revisión humana, políticas de retención desplegadas y contratos del control
+plane operativo.
+
 - Crear `src/agency/` y contratos compartidos.
 - Definir `Tenant`, `Workspace`, `MetaConnection`, `AssetBinding` y roles.
 - Separar control plane de conexiones del endpoint MCP de análisis.
@@ -41,6 +47,12 @@ Salida pendiente:
 **Gate:** aislamiento probado a nivel de repositorio, servicio y exportación.
 
 ## Fase 2 — Ingesta e histórico
+
+**Estado:** en progreso en `feature/meta-readonly-ingestion`. Ads Insights tiene
+lector GET-only, paginación acotada, normalización diaria, raw sanitizado,
+checkpoints monotónicos, replay idempotente y aislamiento probado con datos
+sintéticos. Pages/Instagram orgánico, worker/scheduler, bindings de producción
+y contract tests con una Meta test app siguen pendientes.
 
 - Clientes read-only para Ads, Facebook e Instagram.
 - Jobs idempotentes, watermarks, paginación y backfill.
@@ -53,6 +65,10 @@ sintéticos/sandbox, sin duplicados ni cruces de tenant.
 
 ## Fase 3 — Analytics
 
+**Estado:** comparaciones por periodo, agregación de KPIs y segmentación inicial
+implementadas; faltan conciliación contra Meta, anomalías/fatiga y calibración
+con datasets aceptados por negocio.
+
 - Motor de KPIs con definiciones versionadas.
 - Comparaciones semanal, mensual y periodo anterior.
 - Tendencias, anomalías y detección de fatiga.
@@ -63,6 +79,10 @@ sintéticos/sandbox, sin duplicados ni cruces de tenant.
 ausentes.
 
 ## Fase 4 — Reporting y Excel
+
+**Estado:** workbook semanal/mensual editable y sin macros implementado y
+validado automáticamente con fixtures; queda pendiente aprobación manual de
+negocio y smoke test final en Microsoft Excel de escritorio.
 
 - Implementar `reporting/` y `excel/` separados del pipeline de ingesta.
 - Workbook semanal y mensual con hojas, tablas, fórmulas y gráficos definidos.
@@ -82,6 +102,9 @@ negocio usando fixtures.
 **Gate:** prueba de carga equivalente a 20 cuentas y recuperación ensayada.
 
 ## Fase 6 — Recomendaciones
+
+**Estado:** reglas read-only explicables implementadas; falta evaluación offline
+y calibración de umbrales con datos sintéticos o anonimizados representativos.
 
 - Reglas explicables y versionadas.
 - Priorización por impacto, confianza y volumen de evidencia.
@@ -116,10 +139,12 @@ Orden recomendado:
 
 ## Próximas tareas recomendadas
 
-1. Revisar y cerrar la rama de hardening sin merge automático.
-2. Crear tests de integración con Firestore emulator.
-3. Ensayar rotación y restore de claves con documentos ficticios.
-4. Diseñar el modelo de datos tenant/workspace/asset/history.
-5. Crear fixtures sintéticos y contratos de métricas.
-6. Implementar el primer backfill read-only antes de construir Excel.
-
+1. Revisar las ramas encadenadas y decidir su integración sin merge automático.
+2. Crear tests de integración de histórico/checkpoints con Firestore emulator.
+3. Implementar el worker con identidad de workload y binding autoritativo de
+   tenant/workspace/cuenta.
+4. Añadir lectores read-only de Pages e Instagram orgánico.
+5. Ejecutar contract tests en una Meta test app sin cuentas reales.
+6. Ensayar rotación y restore de claves con documentos ficticios.
+7. Implementar scheduler, backpressure, reintentos coordinados y dead-letter
+   queue antes de escalar a veinte cuentas.

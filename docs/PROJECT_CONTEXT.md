@@ -6,8 +6,11 @@
 - **Repositorio base:** fork de `meta-ads-mcp`.
 - **Cliente objetivo:** agencias inmobiliarias pequeñas y agentes individuales.
 - **Piloto inicial:** aproximadamente 20 perfiles o cuentas de Meta.
-- **Estado de referencia:** hardening de seguridad en la rama
-  `security/hardening-v1`, sin cuentas reales conectadas.
+- **Estado de referencia:** seguridad, histórico, reporting, Excel,
+  segmentación e ingesta read-only inicial implementados en ramas encadenadas;
+  sin cuentas reales conectadas.
+- **Repositorio de trabajo:** `XxHugheadxX/meta-agency-intelligence` privado.
+  El fork público se conserva exclusivamente como upstream de lectura.
 
 ## Problema
 
@@ -56,6 +59,7 @@ responsabilidades:
 
 ```text
 src/agency/
+├── ingestion/
 ├── analytics/
 ├── reporting/
 ├── segmentation/
@@ -80,6 +84,8 @@ src/agency/
   staging definidos en `PRODUCT_ROADMAP.md`.
 - Los agentes que trabajen en este repositorio no deben ejecutar `npm` ni
   `npx`; la migración del package manager upstream requiere un cambio separado.
+- Ningún agente debe enviar cambios al upstream público; todos los pushes de
+  producto se limitan al repositorio privado de trabajo.
 
 ## Alcance funcional inicial
 
@@ -120,4 +126,3 @@ src/agency/
    privilegio.
 6. Ejecutar las validaciones relevantes sin usar `npm` ni `npx`.
 7. Actualizar roadmap y documentación cuando cambie una decisión de producto.
-
