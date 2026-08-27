@@ -68,6 +68,7 @@ export interface ApifySectionContext {
   /** Internal path the POST handlers redirect back to. Already validated by the caller. */
   returnTo: string;
   variant: "consent" | "connections";
+  csrfToken?: string;
 }
 
 /**
@@ -76,10 +77,14 @@ export interface ApifySectionContext {
  */
 export function renderApifySection(ctx: ApifySectionContext): string {
   const returnHidden = `<input type="hidden" name="return" value="${escapeHtml(ctx.returnTo)}" />`;
+  const csrfHidden = ctx.csrfToken
+    ? `<input type="hidden" name="csrf_token" value="${escapeHtml(ctx.csrfToken)}" />`
+    : "";
   const tokenField = `<input type="password" name="apify_token" placeholder="apify_api_…" required minlength="10" maxlength="200" autocomplete="off" />`;
 
   const registerForm = `<form method="POST" action="/auth/register-apify-token">
         ${returnHidden}
+        ${csrfHidden}
         ${tokenField}
         <button type="submit">Validar y guardar</button>
       </form>
@@ -102,6 +107,7 @@ export function renderApifySection(ctx: ApifySectionContext): string {
     ctx.variant === "connections"
       ? `<form method="POST" action="/auth/delete-apify-token" class="inline">
           ${returnHidden}
+          ${csrfHidden}
           <button type="submit" class="danger">Desconectar</button>
         </form>`
       : "";
@@ -126,6 +132,8 @@ export interface ConnectionsPageContext {
   tokens: MetaTokenSummary[];
   activeName: string | null;
   apify: ApifyTokenStatus;
+  readOnly?: boolean;
+  csrfToken?: string;
 }
 
 export function userInitials(user: { name: string | null; email: string | null }): string {
@@ -147,7 +155,7 @@ export function describeTokenExpiry(token: MetaTokenSummary): string {
 
 function renderMetaTokenRows(ctx: ConnectionsPageContext): string {
   if (ctx.tokens.length === 0) {
-    return `<p class="no-tokens">No hay tokens de Meta conectados. Cierra sesión y vuelve a iniciar, o registra un System User token desde la pantalla de autorización.</p>`;
+    return `<p class="no-tokens">No hay una conexión Meta autorizada para este workspace. Cierra sesión y vuelve a iniciar mediante OAuth.</p>`;
   }
 
   return ctx.tokens
@@ -157,11 +165,14 @@ function renderMetaTokenRows(ctx: ConnectionsPageContext): string {
       const businessChip = t.businessName
         ? `<span class="badge badge-bm" title="Business Manager">${escapeHtml(t.businessName)}</span>`
         : "";
-      const action = isActive
+      const action = ctx.readOnly
+        ? (isActive ? '<span class="active-mark">activo</span>' : "")
+        : isActive
         ? '<span class="active-mark">activo</span>'
         : `<form method="POST" action="/auth/select-token" class="inline">
             <input type="hidden" name="name" value="${escapeHtml(t.name)}" />
             <input type="hidden" name="return" value="${CONNECTIONS_PATH}" />
+            ${ctx.csrfToken ? `<input type="hidden" name="csrf_token" value="${escapeHtml(ctx.csrfToken)}" />` : ""}
             <button type="submit">Usar</button>
           </form>`;
 
@@ -198,6 +209,7 @@ ${PAGE_EXTRA_STYLES}
         <div class="user-email">${escapeHtml(ctx.user.email ?? ctx.user.fbUserId)}</div>
       </div>
       <form method="POST" action="/auth/logout" class="inline">
+        ${ctx.csrfToken ? `<input type="hidden" name="csrf_token" value="${escapeHtml(ctx.csrfToken)}" />` : ""}
         <button type="submit" class="logout">Salir</button>
       </form>
     </div>
@@ -210,7 +222,7 @@ ${PAGE_EXTRA_STYLES}
       ${renderMetaTokenRows(ctx)}
     </div>
 
-    ${renderApifySection({ status: ctx.apify, returnTo: CONNECTIONS_PATH, variant: "connections" })}
+    ${ctx.readOnly ? "" : renderApifySection({ status: ctx.apify, returnTo: CONNECTIONS_PATH, variant: "connections", csrfToken: ctx.csrfToken })}
   </div>
 </body>
 </html>`;

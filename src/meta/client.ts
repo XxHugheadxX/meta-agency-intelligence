@@ -1,4 +1,9 @@
-import { getAccessToken, hashToken } from "../auth/token-store.js";
+import {
+  getAccessToken,
+  getTenantContext,
+  hashToken,
+  type TenantContext,
+} from "../auth/token-store.js";
 import { logger } from "../utils/logger.js";
 import { RateLimiter, type RequestContext } from "./rate-limiter.js";
 import { CircuitBreaker, type CircuitContext } from "./circuit-breaker.js";
@@ -10,6 +15,7 @@ import {
 } from "./errors.js";
 import type { MetaApiResponse } from "./types/common.js";
 import { collectAllPages } from "./paginator.js";
+import { DistributedMetaGuard } from "./distributed-guard.js";
 
 const DEFAULT_API_VERSION = "v25.0";
 const DEFAULT_BASE_URL = "https://graph.facebook.com";
@@ -23,6 +29,7 @@ export interface MetaApiClientConfig {
   baseUrl?: string;
   timeout?: number;
   maxRetries?: number;
+  mode?: "read_only" | "write";
 }
 
 interface RequestScope {
@@ -51,10 +58,13 @@ export class MetaApiClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly maxRetries: number;
+  private readonly mode: "read_only" | "write";
   private readonly rateLimiter = new RateLimiter();
   private readonly circuitBreaker = new CircuitBreaker();
   private readonly writePacer = new WritePacer();
+  private readonly distributedGuard = new DistributedMetaGuard();
   private lastUsageLogAt = 0;
+  private readonly tenantObjectCache = new Map<string, string>();
 
   constructor(config?: MetaApiClientConfig) {
     this.apiVersion =
@@ -62,6 +72,7 @@ export class MetaApiClient {
     this.baseUrl = config?.baseUrl ?? DEFAULT_BASE_URL;
     this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = config?.maxRetries ?? MAX_RETRIES;
+    this.mode = config?.mode ?? (process.env.MCP_MODE === "write" ? "write" : "read_only");
   }
 
   async get<T>(
@@ -76,6 +87,7 @@ export class MetaApiClient {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<T> {
+    this.assertWriteAllowed("POST", path);
     const url = this.buildUrl(path);
     return this.execute<T>("POST", url, path, {
       headers: { "Content-Type": "application/json" },
@@ -88,6 +100,7 @@ export class MetaApiClient {
     params: Record<string, string | number | boolean>,
     scope?: RequestScope,
   ): Promise<T> {
+    this.assertWriteAllowed("POST", path);
     const url = this.buildUrl(path);
     const formBody = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -103,16 +116,16 @@ export class MetaApiClient {
     path: string,
     formData: FormData,
   ): Promise<T> {
+    this.assertWriteAllowed("POST", path);
     const url = this.buildUrl(path);
-    const token = getAccessToken();
-    formData.set("access_token", token);
-    return this.execute<T>("POST", url, path, { body: formData }, true);
+    return this.execute<T>("POST", url, path, { body: formData });
   }
 
   async delete<T>(
     path: string,
     params?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
+    this.assertWriteAllowed("DELETE", path);
     const url = this.buildUrl(path, params);
     return this.execute<T>("DELETE", url, path);
   }
@@ -148,6 +161,7 @@ export class MetaApiClient {
     this.circuitBreaker.reset();
     this.writePacer.reset();
     this.lastUsageLogAt = 0;
+    this.tenantObjectCache.clear();
   }
 
   // ─── Internal ────────────────────────────────────────────────
@@ -175,11 +189,12 @@ export class MetaApiClient {
     url: string,
     path: string,
     options?: RequestInit,
-    skipTokenParam = false,
+    _skipTokenParam = false,
     scope?: RequestScope,
   ): Promise<T> {
     const token = getAccessToken();
     const tokenHash = hashToken(token);
+    await this.assertTenantAssetAccess(path, url, token, tokenHash);
     const accountId = scope?.accountId ?? extractAccountId(path);
     const context: RequestContext = { tokenHash, accountId };
     const circuitContext: CircuitContext = {
@@ -190,6 +205,7 @@ export class MetaApiClient {
 
     // Circuit breaker is the hard stop: if open, never call Meta.
     this.circuitBreaker.assertClosed(circuitContext);
+    await this.distributedGuard.beforeRequest(circuitContext);
 
     // Preventive write pacing for POST / DELETE on account-scoped paths.
     const isWrite =
@@ -201,8 +217,6 @@ export class MetaApiClient {
 
     // Reactive self-throttle based on last-known usage headers.
     await this.rateLimiter.waitIfNeeded(context);
-
-    const reqUrl = skipTokenParam ? url : this.appendToken(url, token);
 
     // POST to /act_<id>/<collection> creates new resources without native
     // idempotency on Meta's side — retrying a timeout/5xx/network error can
@@ -231,9 +245,12 @@ export class MetaApiClient {
           this.timeout,
         );
 
-        const response = await fetch(reqUrl, {
+        const headers = new Headers(options?.headers);
+        headers.set("Authorization", `Bearer ${token}`);
+        const response = await fetch(url, {
           method,
           ...options,
+          headers,
           signal: controller.signal,
         });
 
@@ -263,6 +280,10 @@ export class MetaApiClient {
               );
             }
             this.circuitBreaker.trip(circuitContext, classification);
+            await this.distributedGuard.trip(
+              circuitContext,
+              classification.retryAfterMs ?? 15 * 60 * 1000,
+            );
             // Meta's doc: "If you reach the limit, stop making API calls."
             throw classification.mcpError;
           }
@@ -277,9 +298,7 @@ export class MetaApiClient {
         }
 
         if (!response.ok) {
-          lastError = new Error(
-            `HTTP ${response.status}: ${JSON.stringify(body)}`,
-          );
+          lastError = new Error(`Meta API request failed with HTTP ${response.status}`);
           if (response.status >= 500 && canRetryTransport && attempt < this.maxRetries) {
             await this.backoff(attempt);
             continue;
@@ -312,14 +331,99 @@ export class MetaApiClient {
       }
     }
 
-    logger.error({ error: lastError, path }, "All retries exhausted");
+    logger.error(
+      { errorName: lastError?.name, path, event: "meta_retries_exhausted" },
+      "Meta request failed after retries",
+    );
     throw lastError ?? new Error("Request failed after retries");
   }
 
-  private appendToken(url: string, token: string): string {
-    const u = new URL(url);
-    u.searchParams.set("access_token", token);
-    return u.toString();
+  private assertWriteAllowed(method: "POST" | "DELETE", path: string): void {
+    if (this.mode === "read_only") {
+      throw new Error(
+        `Meta ${method} request blocked by read-only policy for path ${path}`,
+      );
+    }
+  }
+
+  private async assertTenantAssetAccess(
+    path: string,
+    requestUrl: string,
+    token: string,
+    tokenHash: string,
+  ): Promise<void> {
+    const tenant = getTenantContext();
+    if (!tenant) return;
+
+    const first = path.replace(/^\//, "").split(/[/?]/, 1)[0];
+    if (!first) {
+      throw new Error("Requested Meta resource is not assigned to this workspace");
+    }
+    if (first === "me") {
+      throw new Error("Workspace-scoped Meta requests cannot use /me edges");
+    }
+
+    if (/^act_\d+$/.test(first)) {
+      this.assertAccountAllowed(first, tenant);
+    } else if (/^\d+$/.test(first)) {
+      await this.assertObjectAllowed(first, tenant, token, tokenHash);
+    }
+
+    const scopedIds = collectScopedIds(new URL(requestUrl));
+    for (const accountId of scopedIds.accountIds) {
+      this.assertAccountAllowed(accountId, tenant);
+    }
+    for (const assetId of scopedIds.assetIds) {
+      await this.assertObjectAllowed(assetId, tenant, token, tokenHash);
+    }
+  }
+
+  private assertAccountAllowed(accountId: string, tenant: TenantContext): void {
+    const normalized = accountId.startsWith("act_")
+      ? accountId
+      : `act_${accountId}`;
+    if (!tenant.allowedAccountIds.has(normalized)) {
+      throw new Error("Requested ad account is not assigned to this workspace");
+    }
+  }
+
+  private async assertObjectAllowed(
+    objectId: string,
+    tenant: TenantContext,
+    token: string,
+    tokenHash: string,
+  ): Promise<void> {
+    if (tenant.allowedAssetIds.has(objectId)) return;
+
+    const cacheKey = `${tenant.workspaceId}:${objectId}`;
+    let parentAccount = this.tenantObjectCache.get(cacheKey);
+    if (!parentAccount) {
+      const resolutionContext: CircuitContext = {
+        tokenHash,
+        type: "asset_resolution",
+      };
+      this.circuitBreaker.assertClosed(resolutionContext);
+      await this.distributedGuard.beforeRequest(resolutionContext);
+      const url = this.buildUrl(`/${objectId}`, { fields: "account_id" });
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(Math.min(this.timeout, 10_000)),
+      });
+      const body = (await response.json()) as { account_id?: unknown };
+      if (
+        !response.ok ||
+        (typeof body.account_id !== "string" &&
+          typeof body.account_id !== "number")
+      ) {
+        throw new Error("Requested Meta object is not assigned to this workspace");
+      }
+      const rawParent = String(body.account_id);
+      parentAccount = rawParent.startsWith("act_")
+        ? rawParent
+        : `act_${rawParent}`;
+      this.tenantObjectCache.set(cacheKey, parentAccount);
+    }
+    this.assertAccountAllowed(parentAccount, tenant);
   }
 
   private async backoff(attempt: number): Promise<void> {
@@ -377,16 +481,16 @@ export class MetaApiClient {
       accountId: context.accountId,
     };
     if (classification.critical) {
-      logger.fatal(payload, error.message);
+      logger.fatal(payload, "Meta API rejected the request with a critical condition");
     } else if (
       classification.category === "invalid_params" ||
       classification.category === "duplicate"
     ) {
       // 4xx user-side — count as user_errors signal (Insights formula subtracts
       // 0.001 × user_errors from hourly quota).
-      logger.warn({ ...payload, event: "meta_user_error" }, error.message);
+      logger.warn({ ...payload, event: "meta_user_error" }, "Meta API rejected request parameters");
     } else {
-      logger.error(payload, error.message);
+      logger.error(payload, "Meta API request failed");
     }
   }
 
@@ -427,6 +531,75 @@ function extractAccountId(path: string): string | undefined {
   if (/^act_\d+$/i.test(first)) return first;
   if (/^\d+$/.test(first)) return first;
   return undefined;
+}
+
+const ACCOUNT_ID_KEYS = new Set(["account_id", "ad_account_id"]);
+const ASSET_ID_KEYS = new Set([
+  "ad_id",
+  "adset_id",
+  "ad_set_id",
+  "campaign_id",
+  "creative_id",
+  "custom_audience_id",
+  "form_id",
+  "instagram_actor_id",
+  "instagram_user_id",
+  "page_id",
+  "pixel_id",
+  "report_run_id",
+  "video_id",
+]);
+
+interface ScopedIds {
+  accountIds: Set<string>;
+  assetIds: Set<string>;
+}
+
+function collectScopedIds(url: URL): ScopedIds {
+  const result: ScopedIds = {
+    accountIds: new Set<string>(),
+    assetIds: new Set<string>(),
+  };
+  for (const [key, rawValue] of url.searchParams) {
+    collectScopedValue(key, rawValue, result);
+    if (rawValue.startsWith("{") || rawValue.startsWith("[")) {
+      try {
+        collectScopedObject(JSON.parse(rawValue) as unknown, result);
+      } catch {
+        // The Graph API will reject malformed JSON. It carries no trusted IDs.
+      }
+    }
+  }
+  return result;
+}
+
+function collectScopedObject(value: unknown, result: ScopedIds): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectScopedObject(item, result);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (typeof nested === "string" || typeof nested === "number") {
+      collectScopedValue(key, String(nested), result);
+    }
+    collectScopedObject(nested, result);
+  }
+}
+
+function collectScopedValue(
+  key: string,
+  rawValue: string,
+  result: ScopedIds,
+): void {
+  if (ACCOUNT_ID_KEYS.has(key) && /^(?:act_)?\d+$/.test(rawValue)) {
+    result.accountIds.add(
+      rawValue.startsWith("act_") ? rawValue : `act_${rawValue}`,
+    );
+  }
+  if (ASSET_ID_KEYS.has(key) && /^\d+$/.test(rawValue)) {
+    result.assetIds.add(rawValue);
+  }
 }
 
 /**

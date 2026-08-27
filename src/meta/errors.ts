@@ -60,20 +60,14 @@ const SUBCODE_TEMPORARY_BLOCK = 1487742;
  *   https://developers.facebook.com/docs/marketing-api/insights/error-codes
  */
 export function classifyMetaError(error: MetaApiError): MetaErrorClassification {
-  const { code, error_subcode, message, error_user_title, error_user_msg } = error;
-
-  const metaDetails = [
-    error_user_title ? `[${error_user_title}]` : "",
-    error_user_msg ?? "",
-  ].filter(Boolean).join(" ");
-  const detailSuffix = metaDetails ? ` — ${metaDetails}` : "";
+  const { code, error_subcode } = error;
 
   // ─── Abuse signal (subcode 1996) ─────────────────────────────
   // "Inconsistent request volume detected" — this is how Meta flags
   // suspicious traffic and it's a direct precursor to suspensions.
   if (error_subcode === SUBCODE_ABUSE) {
     logger.fatal(
-      { event: "META_ABUSE_SIGNAL", code, subcode: error_subcode, message },
+      { event: "META_ABUSE_SIGNAL", code, subcode: error_subcode },
       "Meta detected inconsistent request volume — treating as abuse signal",
     );
     return {
@@ -85,7 +79,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: true,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `Meta flagged inconsistent request volume (abuse signal). All calls to this account/token halted for 60 min. (Meta: ${message})${detailSuffix}`,
+        "Meta flagged inconsistent request volume. Calls are halted for 60 minutes.",
       ),
     };
   }
@@ -106,7 +100,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `${detail} (Meta: ${message})${detailSuffix}`,
+        detail,
       ),
     };
   }
@@ -122,7 +116,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: true,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `Meta temporarily blocked this user/business. Do not retry until Meta lifts the block. (Meta: ${message})${detailSuffix}`,
+        "Meta temporarily blocked this user/business. Do not retry until the block is lifted.",
       ),
     };
   }
@@ -138,7 +132,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidParams,
-        `Data-per-call limit reached. Reduce date range, number of ad IDs, or metrics — or use an async report. (Meta: ${message})${detailSuffix}`,
+        "Data-per-call limit reached. Reduce date range, number of ad IDs, or metrics.",
       ),
     };
   }
@@ -154,7 +148,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `Global Insights rate limit hit. Backing off for 2 min. (Meta: ${message})${detailSuffix}`,
+        "Global Insights rate limit hit. Backing off for 2 minutes.",
       ),
     };
   }
@@ -170,7 +164,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `${bucType} rate limit reached. Wait before retrying. (Meta code ${code}: ${message})${detailSuffix}`,
+        `${bucType} rate limit reached. Wait before retrying. (Meta code ${code})`,
       ),
     };
   }
@@ -185,7 +179,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `Platform rate limit exceeded (Meta code ${code}). Wait before retrying. (Meta: ${message})${detailSuffix}`,
+        `Platform rate limit exceeded (Meta code ${code}). Wait before retrying.`,
       ),
     };
   }
@@ -200,7 +194,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidParams,
-        `Object not found: ${message}${detailSuffix}`,
+        "Object not found or not accessible.",
       ),
     };
   }
@@ -215,7 +209,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidParams,
-        `Invalid parameter: ${message}${error_subcode ? ` (subcode: ${error_subcode})` : ""}${detailSuffix}`,
+        `Invalid parameter${error_subcode ? ` (subcode: ${error_subcode})` : ""}`,
       ),
     };
   }
@@ -230,7 +224,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InvalidRequest,
-        `Duplicate: ${message}${detailSuffix}`,
+        "Duplicate object rejected by Meta.",
       ),
     };
   }
@@ -245,7 +239,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
       critical: false,
       mcpError: new McpError(
         ErrorCode.InternalError,
-        `Meta API error: ${message}. Please retry.${detailSuffix}`,
+        "Meta API transient error. Please retry.",
       ),
     };
   }
@@ -259,7 +253,7 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
     critical: false,
     mcpError: new McpError(
       ErrorCode.InternalError,
-      `Meta API error (code ${code}): ${message}${detailSuffix}`,
+      `Meta API error (code ${code}).`,
     ),
   };
 }
@@ -268,7 +262,10 @@ export function classifyMetaError(error: MetaApiError): MetaErrorClassification 
  * Back-compat thin wrapper used by legacy call-sites.
  */
 export function mapMetaErrorToMcp(error: MetaApiError): McpError {
-  logger.debug({ metaError: error }, "Mapping Meta API error to MCP error");
+  logger.debug(
+    { metaErrorCode: error.code, metaErrorSubcode: error.error_subcode },
+    "Mapping Meta API error to MCP error",
+  );
   return classifyMetaError(error).mcpError;
 }
 

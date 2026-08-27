@@ -121,7 +121,7 @@ describe("registerWhatsAppTemplateTools", () => {
       expect(url.pathname).toContain("/111/message_templates");
       const init = fetchMock.mock.calls[0][1] as RequestInit;
       expect(init.method).toBe("POST");
-      expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+      expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
       const body = JSON.parse(init.body as string);
       expect(body.components).toEqual(components);
       expect(body.name).toBe("order_shipped");

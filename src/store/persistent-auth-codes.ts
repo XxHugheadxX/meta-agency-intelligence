@@ -8,6 +8,8 @@ export interface AuthCodeEntry {
   redirectUri: string;
   resource?: string;
   fbUserId?: string;
+  tenantId?: string;
+  workspaceId?: string;
   expiresAt: number;
 }
 

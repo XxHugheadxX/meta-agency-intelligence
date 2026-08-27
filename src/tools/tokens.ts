@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { tokenManager, maskToken } from "../auth/token-manager.js";
+import { tokenManager } from "../auth/token-manager.js";
 import { getCurrentFbUserId } from "../auth/token-store.js";
 import {
   deleteToken as repoDeleteToken,
@@ -172,7 +172,7 @@ export function registerTokenTools(server: McpServer): void {
     },
     async ({ bm_name, access_token }) => {
       logger.info(
-        { tokenName: bm_name, maskedToken: maskToken(access_token) },
+        { tokenName: bm_name, event: "legacy_token_registration_requested" },
         "Validating token before registration",
       );
       const validation = await validateMetaToken(access_token);
@@ -211,7 +211,7 @@ export function registerTokenTools(server: McpServer): void {
               text:
                 `System User token "${bm_name}" registered for user ${fbUserId}.\n` +
                 `Validated as: ${validation.profile.name ?? validation.profile.id}\n` +
-                `Token: ${maskToken(access_token)}`,
+                "Token accepted and stored server-side.",
             },
           ],
         };
@@ -225,7 +225,7 @@ export function registerTokenTools(server: McpServer): void {
             text:
               `Token "${bm_name}" registered (legacy in-memory pool).\n` +
               `Validated as: ${validation.profile.name ?? validation.profile.id}\n` +
-              `Token: ${maskToken(access_token)}`,
+              "Token accepted and stored server-side.",
           },
         ],
       };

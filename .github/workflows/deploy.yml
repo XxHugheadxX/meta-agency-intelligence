@@ -228,72 +228,6 @@ jobs:
             fi
           fi
 
-      - name: Sync META_TOKENS to Secret Manager
-        env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_REGION: ${{ secrets.GCP_REGION }}
-          META_TOKENS: ${{ secrets.META_TOKENS }}
-          GCP_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
-        run: |
-          set -u
-          if [ -z "${META_TOKENS}" ]; then
-            echo "META_TOKENS not set; skipping Secret Manager sync"
-            exit 0
-          fi
-
-          # Sanity-check: it must be valid JSON (catches the buggy
-          # comma-split fragments that broke production).
-          if ! printf '%s' "${META_TOKENS}" | python3 -c 'import json,sys; json.loads(sys.stdin.read())' 2>/dev/null; then
-            echo "META_TOKENS is not valid JSON; refusing to sync"
-            exit 1
-          fi
-
-          SECRET_NAME=meta-tokens-prod
-          # Always grant access to the SA the deploy step will pin (single
-          # source of truth: GCP_RUNTIME_SERVICE_ACCOUNT). Previously this
-          # derived RUNTIME_SA from gcloud run services describe with a
-          # fall-back to the default Compute SA — that drifted from the SA
-          # the deploy step actually used.
-          RUNTIME_SA="${GCP_RUNTIME_SERVICE_ACCOUNT}"
-
-          # Idempotent IAM reconcile: ensure the current runtime SA always
-          # has access to meta-tokens-prod, regardless of whether the secret
-          # is being created here or already existed. Without this, rotating
-          # GCP_RUNTIME_SERVICE_ACCOUNT to a new SA would mount the secret
-          # at deploy time but the new SA would lack secretmanager.secretAccessor,
-          # and the container would fail at startup.
-          ensure_iam_binding() {
-            local secret="$1"
-            gcloud secrets add-iam-policy-binding "$secret" \
-              --member="serviceAccount:${RUNTIME_SA}" \
-              --role=roles/secretmanager.secretAccessor \
-              --project="$GCP_PROJECT_ID" --condition=None --quiet >/dev/null
-          }
-
-          if ! gcloud secrets describe "$SECRET_NAME" --project="$GCP_PROJECT_ID" --quiet >/dev/null 2>&1; then
-            printf '%s' "${META_TOKENS}" | gcloud secrets create "$SECRET_NAME" \
-              --data-file=- --replication-policy=automatic \
-              --project="$GCP_PROJECT_ID" --quiet
-            ensure_iam_binding "$SECRET_NAME"
-            echo "Created Secret Manager secret $SECRET_NAME and granted ${RUNTIME_SA} access."
-          else
-            ensure_iam_binding "$SECRET_NAME"
-            echo "Reconciled ${RUNTIME_SA} access on existing $SECRET_NAME."
-            # Only add a new version if the value actually changed — avoids
-            # one new version per deploy (Secret Manager bills per-version).
-            existing_hash=$(gcloud secrets versions access latest \
-              --secret="$SECRET_NAME" --project="$GCP_PROJECT_ID" 2>/dev/null \
-              | shasum -a 256 | cut -d' ' -f1 || true)
-            desired_hash=$(printf '%s' "${META_TOKENS}" | shasum -a 256 | cut -d' ' -f1)
-            if [ "${existing_hash}" != "${desired_hash}" ]; then
-              printf '%s' "${META_TOKENS}" | gcloud secrets versions add "$SECRET_NAME" \
-                --data-file=- --project="$GCP_PROJECT_ID" --quiet
-              echo "Added new version of $SECRET_NAME (value changed)."
-            else
-              echo "$SECRET_NAME is already up to date."
-            fi
-          fi
-
       - name: Configure Docker for Artifact Registry
         env:
           GCP_REGION: ${{ secrets.GCP_REGION }}
@@ -332,6 +266,9 @@ jobs:
             --port=3000
           env_vars: |
             META_API_VERSION=v22.0
+            MCP_MODE=read_only
+            ALLOW_LEAD_PII=false
+            DISTRIBUTED_RATE_LIMIT_BACKEND=firestore
             LOG_LEVEL=info
             NODE_ENV=production
             META_APP_ID=${{ secrets.META_APP_ID }}
@@ -341,12 +278,10 @@ jobs:
             AUTH_ALLOWED_FB_USER_IDS=${{ secrets.AUTH_ALLOWED_FB_USER_IDS }}
             FIRESTORE_PROJECT_ID=${{ secrets.FIRESTORE_PROJECT_ID }}
           secrets: |
-            META_TOKENS=meta-tokens-prod:latest
             OAUTH_SECRET=oauth-secret:latest
             TOKEN_ENCRYPTION_KEY=token-encryption-key:latest
             SESSION_COOKIE_SECRET=session-cookie-secret:latest
             META_APP_SECRET=meta-app-secret:latest
-            MCP_API_KEY=mcp-api-key:latest
 
       - name: Mask service URL in logs
         env:

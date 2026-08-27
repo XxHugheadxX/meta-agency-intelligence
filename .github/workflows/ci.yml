@@ -49,49 +49,29 @@ jobs:
 
   secret-scan:
     name: gitleaks (secret scan)
-    # Required check: the job must always run so it can report a
-    # status. Skip only the inner steps for fork PRs, where GitHub
-    # withholds org secrets (GITLEAKS_LICENSE) and gitleaks-action
-    # aborts before scanning. Push to main and PRs from internal
-    # branches scan normally. Fork contributions are still covered
-    # by maintainers running pre-deploy-guard locally on the
-    # merged result.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Skip notice (fork PR)
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: echo "Skipping gitleaks scan — PR from fork (org secrets unavailable). Push to main will re-scan."
-
       - name: Checkout
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0
 
-      # Single source of truth for the scanner version, shared with the local
-      # guard in .github/pre-deploy-guard/. Left unpinned, the action supplies
-      # its own default (8.24.3), which drifts from whatever contributors have
-      # installed — and gitleaks versions genuinely disagree about allowlist
-      # semantics, so a green local scan stopped predicting CI.
-      - name: Resolve pinned gitleaks version
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      - name: Install pinned gitleaks CLI
         run: |
+          set -euo pipefail
           version="$(tr -d '[:space:]' < .gitleaks-version)"
-          # .gitleaks-version is checked-out repo content, so treat it as
-          # untrusted before it reaches GITHUB_ENV: anything but a bare
-          # x.y.z could smuggle extra variables into the job environment.
           if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::.gitleaks-version must contain a bare semver (got: $version)"
             exit 1
           fi
-          echo "GITLEAKS_VERSION=$version" >> "$GITHUB_ENV"
+          archive="gitleaks_${version}_linux_x64.tar.gz"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          curl --fail --silent --show-error --location --output "$archive" "$base/$archive"
+          curl --fail --silent --show-error --location --output checksums.txt "$base/gitleaks_${version}_checksums.txt"
+          grep "  ${archive}$" checksums.txt | sha256sum --check --strict
+          tar -xzf "$archive" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
 
       - name: Run gitleaks
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITLEAKS_VERSION: ${{ env.GITLEAKS_VERSION }}
+        run: gitleaks git --redact --no-banner --config .gitleaks.toml --verbose

@@ -6,10 +6,14 @@ import {
 } from "../auth/crypto.js";
 import {
   exchangeForLongLivedToken,
+  fetchAccessibleAssets,
+  inspectReportingToken,
   loadMetaOAuthConfig,
+  type MetaGranularScope,
   type MetaProfile,
 } from "../auth/meta-oauth.js";
 import { logger } from "../utils/logger.js";
+import { hashPii, hashToken } from "../auth/token-store.js";
 
 const REFRESH_THRESHOLD_SECONDS = 7 * 24 * 60 * 60;
 
@@ -57,6 +61,12 @@ export interface MetaTokenDoc {
   kind: TokenKind;
   expiresAt: number | null;
   scopes: string[];
+  granularScopes: MetaGranularScope[];
+  dataAccessExpiresAt: number | null;
+  workspaceId: string;
+  tokenFingerprint: string;
+  allowedAccountIds: string[];
+  allowedAssetIds: string[];
   metaUserId: string | null;
   metaUserName: string | null;
   businessId: string | null;
@@ -80,11 +90,16 @@ export interface MetaTokenSummary {
 
 export interface SaveTokenInput {
   fbUserId: string;
+  workspaceId?: string;
   name: string;
   accessToken: string;
   kind: TokenKind;
   expiresAt: number | null;
   scopes?: string[];
+  granularScopes?: MetaGranularScope[];
+  dataAccessExpiresAt?: number | null;
+  allowedAccountIds?: string[];
+  allowedAssetIds?: string[];
   metaUserId: string | null;
   metaUserName: string | null;
   businessId?: string | null;
@@ -105,6 +120,28 @@ export interface MetaTokenRepo {
     name?: string,
     serverUrl?: URL,
   ): Promise<string>;
+  resolveToken(
+    workspaceId: string,
+    name?: string,
+    serverUrl?: URL,
+  ): Promise<ResolvedMetaToken>;
+}
+
+export interface ResolvedMetaToken {
+  accessToken: string;
+  workspaceId: string;
+  tokenName: string;
+  scopes: string[];
+  granularScopes: MetaGranularScope[];
+  dataAccessExpiresAt: number | null;
+  allowedAccountIds: string[];
+  allowedAssetIds: string[];
+}
+
+function assertWorkspaceBinding(doc: MetaTokenDoc, workspaceId: string): void {
+  if (doc.workspaceId === workspaceId) return;
+  if (!doc.workspaceId && process.env.ALLOW_LEGACY_UNSCOPED_TOKENS === "true") return;
+  throw new Error("Meta token is not bound to the authenticated workspace");
 }
 
 function summarize(name: string, doc: MetaTokenDoc, now: number): MetaTokenSummary {
@@ -126,17 +163,34 @@ async function maybeRefresh(
   fbUserId: string,
   tokenName: string,
   serverUrl: URL | undefined,
-  persist: (next: { encryptedToken: EncryptedPayload; expiresAt: number; updatedAt: number }) => Promise<void>,
+  persist: (next: Partial<MetaTokenDoc>) => Promise<void>,
 ): Promise<string> {
   const plaintext = decryptCompat(doc.encryptedToken, fbUserId, tokenName);
 
+  const now = Math.floor(Date.now() / 1000);
+  const dataAccessExpired =
+    doc.dataAccessExpiresAt !== null &&
+    doc.dataAccessExpiresAt !== undefined &&
+    doc.dataAccessExpiresAt !== 0 &&
+    doc.dataAccessExpiresAt <= now;
+
   if (doc.kind === "system_user") {
+    if (dataAccessExpired) {
+      throw new Error(
+        `Meta token "${tokenName}" data access has expired. Please reconnect via /authorize.`,
+      );
+    }
     return plaintext;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const dataAccessWithinRefreshWindow =
+    doc.dataAccessExpiresAt !== null &&
+    doc.dataAccessExpiresAt !== undefined &&
+    doc.dataAccessExpiresAt !== 0 &&
+    doc.dataAccessExpiresAt - now < REFRESH_THRESHOLD_SECONDS;
   const isWithinRefreshWindow =
-    doc.expiresAt !== null && doc.expiresAt - now < REFRESH_THRESHOLD_SECONDS;
+    (doc.expiresAt !== null && doc.expiresAt - now < REFRESH_THRESHOLD_SECONDS) ||
+    dataAccessWithinRefreshWindow;
 
   if (!isWithinRefreshWindow) {
     return plaintext;
@@ -145,7 +199,7 @@ async function maybeRefresh(
   const config = serverUrl ? loadMetaOAuthConfig(serverUrl) : null;
   if (!config) {
     logger.warn(
-      { fbUserId, tokenName },
+      { workspace: hashPii(fbUserId), tokenName },
       "Cannot refresh long-lived token: META_APP_ID/SECRET not configured",
     );
     return plaintext;
@@ -153,19 +207,47 @@ async function maybeRefresh(
 
   try {
     const refreshed = await exchangeForLongLivedToken(config, plaintext);
-    await persist({
+    const inspection = await inspectReportingToken(config, refreshed.accessToken);
+    if (doc.metaUserId && inspection.userId !== doc.metaUserId) {
+      throw new Error("Refreshed Meta token owner does not match stored owner");
+    }
+    const assets = await fetchAccessibleAssets(
+      refreshed.accessToken,
+      config.apiVersion,
+    );
+    const granularAccountIds = inspection.granularScopes
+      .filter(({ scope }) => scope === "ads_read")
+      .flatMap(({ targetIds }) => targetIds)
+      .map((id) => (id.startsWith("act_") ? id : `act_${id}`));
+    const next: Partial<MetaTokenDoc> = {
       encryptedToken: encryptToken(
         refreshed.accessToken,
         aadFor(fbUserId, tokenName),
       ),
-      expiresAt: refreshed.expiresAt,
+      expiresAt: inspection.expiresAt === 0 ? refreshed.expiresAt : inspection.expiresAt,
+      dataAccessExpiresAt: inspection.dataAccessExpiresAt,
+      scopes: inspection.scopes,
+      granularScopes: inspection.granularScopes,
+      tokenFingerprint: hashToken(refreshed.accessToken),
+      allowedAccountIds: [
+        ...new Set([...assets.accountIds, ...granularAccountIds]),
+      ].sort(),
+      allowedAssetIds: [
+        ...new Set([
+          inspection.userId,
+          ...inspection.assetIds,
+          ...assets.assetIds,
+        ]),
+      ].sort(),
       updatedAt: Math.floor(Date.now() / 1000),
-    });
+    };
+    await persist(next);
+    Object.assign(doc, next);
     logger.info(
       {
-        fbUserId,
+        workspace: hashPii(fbUserId),
         tokenName,
-        expiresAt: refreshed.expiresAt,
+        expiresAt: next.expiresAt,
         event: "meta_token_refreshed",
       },
       "Refreshed long-lived Meta token",
@@ -173,11 +255,12 @@ async function maybeRefresh(
     return refreshed.accessToken;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const alreadyExpired = doc.expiresAt !== null && doc.expiresAt <= now;
+    const alreadyExpired =
+      (doc.expiresAt !== null && doc.expiresAt <= now) || dataAccessExpired;
     if (alreadyExpired) {
       logger.warn(
         {
-          fbUserId,
+          workspace: hashPii(fbUserId),
           tokenName,
           error: errorMessage,
           event: "meta_token_refresh_failed_expired",
@@ -190,7 +273,7 @@ async function maybeRefresh(
     }
     logger.warn(
       {
-        fbUserId,
+        workspace: hashPii(fbUserId),
         tokenName,
         error: errorMessage,
         event: "meta_token_refresh_failed",
@@ -251,6 +334,12 @@ export class FirestoreMetaTokenRepo implements MetaTokenRepo {
       kind: input.kind,
       expiresAt: input.expiresAt,
       scopes: input.scopes ?? [],
+      granularScopes: input.granularScopes ?? [],
+      dataAccessExpiresAt: input.dataAccessExpiresAt ?? null,
+      workspaceId: input.workspaceId ?? input.fbUserId,
+      tokenFingerprint: hashToken(input.accessToken),
+      allowedAccountIds: input.allowedAccountIds ?? [],
+      allowedAssetIds: input.allowedAssetIds ?? [],
       metaUserId: input.metaUserId,
       metaUserName: input.metaUserName,
       businessId: input.businessId ?? null,
@@ -329,21 +418,40 @@ export class FirestoreMetaTokenRepo implements MetaTokenRepo {
     name?: string,
     serverUrl?: URL,
   ): Promise<string> {
-    const tokenName = name ?? (await this.getDefaultTokenName(fbUserId));
+    return (await this.resolveToken(fbUserId, name, serverUrl)).accessToken;
+  }
+
+  async resolveToken(
+    workspaceId: string,
+    name?: string,
+    serverUrl?: URL,
+  ): Promise<ResolvedMetaToken> {
+    const tokenName = name ?? (await this.getDefaultTokenName(workspaceId));
     if (!tokenName) {
-      throw new Error(`No Meta token registered for user ${fbUserId}`);
+      throw new Error("No Meta token registered for this workspace");
     }
 
-    const ref = this.tokenDocRef(fbUserId, tokenName);
+    const ref = this.tokenDocRef(workspaceId, tokenName);
     const snap = await ref.get();
     if (!snap.exists) {
-      throw new Error(`Meta token "${tokenName}" not found for user ${fbUserId}`);
+      throw new Error("Meta token not found for this workspace");
     }
 
     const data = snap.data() as MetaTokenDoc;
-    return maybeRefresh(data, fbUserId, tokenName, serverUrl, async (next) => {
+    assertWorkspaceBinding(data, workspaceId);
+    const accessToken = await maybeRefresh(data, workspaceId, tokenName, serverUrl, async (next) => {
       await ref.update(next);
     });
+    return {
+      accessToken,
+      workspaceId,
+      tokenName,
+      scopes: [...(data.scopes ?? [])],
+      granularScopes: [...(data.granularScopes ?? [])],
+      dataAccessExpiresAt: data.dataAccessExpiresAt ?? null,
+      allowedAccountIds: [...(data.allowedAccountIds ?? [])],
+      allowedAssetIds: [...(data.allowedAssetIds ?? [])],
+    };
   }
 }
 
@@ -410,6 +518,12 @@ export class InMemoryMetaTokenRepo implements MetaTokenRepo {
       kind: input.kind,
       expiresAt: input.expiresAt,
       scopes: input.scopes ?? [],
+      granularScopes: input.granularScopes ?? [],
+      dataAccessExpiresAt: input.dataAccessExpiresAt ?? null,
+      workspaceId: input.workspaceId ?? input.fbUserId,
+      tokenFingerprint: hashToken(input.accessToken),
+      allowedAccountIds: input.allowedAccountIds ?? [],
+      allowedAssetIds: input.allowedAssetIds ?? [],
       metaUserId: input.metaUserId,
       metaUserName: input.metaUserName,
       businessId: input.businessId ?? null,
@@ -467,19 +581,38 @@ export class InMemoryMetaTokenRepo implements MetaTokenRepo {
     name?: string,
     serverUrl?: URL,
   ): Promise<string> {
-    const tokenName = name ?? (await this.getDefaultTokenName(fbUserId));
+    return (await this.resolveToken(fbUserId, name, serverUrl)).accessToken;
+  }
+
+  async resolveToken(
+    workspaceId: string,
+    name?: string,
+    serverUrl?: URL,
+  ): Promise<ResolvedMetaToken> {
+    const tokenName = name ?? (await this.getDefaultTokenName(workspaceId));
     if (!tokenName) {
-      throw new Error(`No Meta token registered for user ${fbUserId}`);
+      throw new Error("No Meta token registered for this workspace");
     }
-    const bucket = this.tokens.get(fbUserId);
+    const bucket = this.tokens.get(workspaceId);
     const doc = bucket?.get(tokenName);
     if (!doc) {
-      throw new Error(`Meta token "${tokenName}" not found for user ${fbUserId}`);
+      throw new Error("Meta token not found for this workspace");
     }
+    assertWorkspaceBinding(doc, workspaceId);
 
-    return maybeRefresh(doc, fbUserId, tokenName, serverUrl, async (next) => {
+    const accessToken = await maybeRefresh(doc, workspaceId, tokenName, serverUrl, async (next) => {
       bucket!.set(tokenName, { ...doc, ...next });
     });
+    return {
+      accessToken,
+      workspaceId,
+      tokenName,
+      scopes: [...(doc.scopes ?? [])],
+      granularScopes: [...(doc.granularScopes ?? [])],
+      dataAccessExpiresAt: doc.dataAccessExpiresAt ?? null,
+      allowedAccountIds: [...(doc.allowedAccountIds ?? [])],
+      allowedAssetIds: [...(doc.allowedAssetIds ?? [])],
+    };
   }
 }
 
@@ -531,4 +664,12 @@ export function getDecryptedToken(
   serverUrl?: URL,
 ): Promise<string> {
   return activeRepo.getDecryptedToken(fbUserId, name, serverUrl);
+}
+
+export function resolveToken(
+  workspaceId: string,
+  name?: string,
+  serverUrl?: URL,
+): Promise<ResolvedMetaToken> {
+  return activeRepo.resolveToken(workspaceId, name, serverUrl);
 }

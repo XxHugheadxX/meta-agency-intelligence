@@ -4,14 +4,16 @@ import {
   buildAuthorizeUrl,
   exchangeCodeForToken,
   exchangeForLongLivedToken,
+  fetchAccessibleAssets,
   fetchPrimaryBusiness,
   fetchProfile,
+  inspectReportingToken,
   loadMetaOAuthConfig,
-  validateToken,
   type MetaOAuthConfig,
 } from "../auth/meta-oauth.js";
 import { isAllowed } from "../auth/email-allowlist.js";
 import { clearSession, getSession, setSession } from "../auth/session.js";
+import { consumeCsrfToken, issueCsrfToken } from "../auth/csrf.js";
 import {
   generateOAuthStateNonce,
   signOAuthState,
@@ -52,12 +54,9 @@ const apifyValidationClient = new ApifyApiClient({ timeout: 10_000, maxRetries: 
  * rather than SERVER_URL, so a misconfigured env cannot lock legitimate users
  * out.
  *
- * Allowing a request that carries neither header is deliberate and not a CSRF
- * hole: a browser form POST always sends `Origin` (the Fetch spec includes it
- * for POST even in no-cors mode) and every current browser also sends
- * `Sec-Fetch-Site`. A request with neither is therefore not a browser form
- * post, so it has no ambient session cookie to abuse — and it still has to pass
- * the session check that follows.
+ * Requests with neither signal fail closed. Browser compatibility is secondary
+ * to preventing an ambient session cookie from authorizing an unverifiable
+ * state-changing request.
  */
 export function isSameOriginRequest(headers: {
   secFetchSite?: string | null;
@@ -65,7 +64,7 @@ export function isSameOriginRequest(headers: {
   selfOrigin: string;
 }): boolean {
   if (headers.secFetchSite) return headers.secFetchSite === "same-origin";
-  if (!headers.origin) return true;
+  if (!headers.origin) return false;
   try {
     return new URL(headers.origin).origin === headers.selfOrigin;
   } catch {
@@ -207,9 +206,46 @@ function clearOAuthStateCookie(res: express.Response): void {
 
 export interface AuthRoutesOptions {
   serverUrl: URL;
+  readOnly: boolean;
   getClient: (
     clientId: string,
   ) => OAuthClientInformationFull | undefined | Promise<OAuthClientInformationFull | undefined>;
+}
+
+export function requireSameOriginPost(selfOrigin: string): express.RequestHandler {
+  return (req, res, next) => {
+    if (req.method !== "POST") {
+      next();
+      return;
+    }
+    if (!isSameOriginRequest({
+      secFetchSite: req.get("sec-fetch-site"),
+      origin: req.get("origin"),
+      selfOrigin,
+    })) {
+      logger.warn(
+        { event: "cross_origin_post_rejected", path: req.path },
+        "Rejected a cross-origin auth request",
+      );
+      renderError(res, 403, "Cross-origin request rejected.");
+      return;
+    }
+    next();
+  };
+}
+
+async function requireValidCsrf(
+  req: express.Request,
+  res: express.Response,
+  session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+): Promise<boolean> {
+  if (await consumeCsrfToken(req.body?.csrf_token, session)) return true;
+  logger.warn(
+    { event: "csrf_token_rejected", path: req.path },
+    "Rejected an invalid or replayed CSRF token",
+  );
+  renderError(res, 403, "Invalid or expired form token. Reload and try again.");
+  return false;
 }
 
 export async function validateMetaAuthReturn(
@@ -261,7 +297,11 @@ export function mountAuthRoutes(
   app: express.Application,
   options: AuthRoutesOptions,
 ): void {
-  const { serverUrl, getClient } = options;
+  const { serverUrl, getClient, readOnly } = options;
+
+  // Uniform CSRF boundary for every cookie-authenticated state-changing auth
+  // endpoint. Comparing with configured SERVER_URL avoids trusting Host.
+  app.use("/auth", requireSameOriginPost(serverUrl.origin));
 
   app.get("/auth/meta", async (req, res) => {
     const returnTo = await validateMetaAuthReturn(req.query.return, getClient);
@@ -294,12 +334,7 @@ export function mountAuthRoutes(
       // Don't reflect Meta's error code/message back to the user — log it
       // server-side and show a generic message (CODE-M1).
       logger.warn(
-        {
-          metaError: error,
-          metaErrorCode: req.query.error_code,
-          metaErrorReason: req.query.error_reason,
-          metaErrorDescription: req.query.error_description,
-        },
+        { event: "meta_oauth_denied" },
         "Meta OAuth callback returned an error",
       );
       renderError(
@@ -327,6 +362,11 @@ export function mountAuthRoutes(
         shortLived.accessToken,
       );
       const profile = await fetchProfile(longLived.accessToken, config.apiVersion);
+      const inspection = await inspectReportingToken(config, longLived.accessToken);
+      if (inspection.userId !== profile.id) {
+        throw new Error("Meta token owner validation failed");
+      }
+      const assets = await fetchAccessibleAssets(longLived.accessToken, config.apiVersion);
 
       if (!isAllowed({ email: profile.email, fbUserId: profile.id })) {
         // Hash PII before logging — keeps the value correlatable across
@@ -350,12 +390,29 @@ export function mountAuthRoutes(
       );
 
       await upsertUser(profile.id, profile);
+      const granularAccountIds = inspection.granularScopes
+        .filter(({ scope }) => scope === "ads_read")
+        .flatMap(({ targetIds }) => targetIds)
+        .map((id) => (id.startsWith("act_") ? id : `act_${id}`));
       await saveToken({
         fbUserId: profile.id,
+        workspaceId: profile.id,
         name: "personal",
         accessToken: longLived.accessToken,
         kind: "user",
-        expiresAt: longLived.expiresAt,
+        expiresAt:
+          inspection.expiresAt === 0
+            ? longLived.expiresAt
+            : inspection.expiresAt,
+        scopes: inspection.scopes,
+        granularScopes: inspection.granularScopes,
+        dataAccessExpiresAt: inspection.dataAccessExpiresAt,
+        allowedAccountIds: [
+          ...new Set([...assets.accountIds, ...granularAccountIds]),
+        ],
+        allowedAssetIds: [
+          ...new Set([profile.id, ...inspection.assetIds, ...assets.assetIds]),
+        ],
         metaUserId: profile.id,
         metaUserName: profile.name,
         businessId: business?.id ?? null,
@@ -370,16 +427,19 @@ export function mountAuthRoutes(
       });
 
       res.redirect(302, safeReturnTo(pending.returnTo));
-    } catch (err) {
-      logger.error(
-        { error: err instanceof Error ? err.message : String(err) },
-        "Meta callback failed",
-      );
+    } catch {
+      logger.error({ event: "meta_oauth_callback_failed" }, "Meta callback failed");
       renderError(res, 500, "Login failed. Please try again.");
     }
   });
 
-  app.post("/auth/logout", async (req, res) => {
+  app.post("/auth/logout", express.urlencoded({ extended: false }), async (req, res) => {
+    const session = await getSession(req);
+    if (!session) {
+      renderError(res, 401, "Session expired. Sign in again.");
+      return;
+    }
+    if (!(await requireValidCsrf(req, res, session))) return;
     await clearSession(req, res);
     res.setHeader(
       "Content-Security-Policy",
@@ -402,11 +462,16 @@ export function mountAuthRoutes(
     "/auth/select-token",
     express.urlencoded({ extended: false }),
     async (req, res) => {
+      if (readOnly) {
+        renderError(res, 403, "Credential selection is disabled in read-only mode.");
+        return;
+      }
       const session = await getSession(req);
       if (!session) {
         res.status(401).json({ error: "Not authenticated" });
         return;
       }
+      if (!(await requireValidCsrf(req, res, session))) return;
       const name = typeof req.body?.name === "string" ? req.body.name : null;
       if (!name) {
         res.status(400).json({ error: "Missing name" });
@@ -425,65 +490,12 @@ export function mountAuthRoutes(
   app.post(
     "/auth/register-system-token",
     express.urlencoded({ extended: false }),
-    async (req, res) => {
-      const session = await getSession(req);
-      if (!session) {
-        res.status(401).json({ error: "Not authenticated" });
-        return;
-      }
-
-      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
-      const token =
-        typeof req.body?.access_token === "string"
-          ? req.body.access_token.trim()
-          : "";
-
-      if (!name || !/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
-        renderError(res, 400, "Invalid token name (1-64 chars: a-z, A-Z, 0-9, _, -).");
-        return;
-      }
-      if (!token || token.length < 10) {
-        renderError(res, 400, "Invalid access token.");
-        return;
-      }
-
-      const validation = await validateToken(token);
-      if (!validation.valid || !validation.profile) {
-        // Don't echo Meta's validation error verbatim — it can carry
-        // trace IDs and Graph API messages we don't want surfaced to
-        // the operator's UI (CODE-M1).
-        logger.warn(
-          {
-            fbUserId: hashPii(session.fbUserId),
-            tokenName: name,
-            error: validation.error ?? null,
-          },
-          "System User token validation failed",
-        );
-        renderError(
-          res,
-          400,
-          "Token validation failed. The token may be expired, revoked, or for a different Meta app. Check the server logs for details.",
-        );
-        return;
-      }
-
-      const business = await fetchPrimaryBusiness(token);
-
-      await saveToken({
-        fbUserId: session.fbUserId,
-        name,
-        accessToken: token,
-        kind: "system_user",
-        expiresAt: null,
-        metaUserId: validation.profile.id,
-        metaUserName: validation.profile.name,
-        businessId: business?.id ?? null,
-        businessName: business?.name ?? null,
-      });
-
-      const returnTo = safeReturnTo(req.body?.return);
-      res.redirect(302, returnTo);
+    async (_req, res) => {
+      renderError(
+        res,
+        410,
+        "Browser token registration was removed. Connect through server-side Meta OAuth.",
+      );
     },
   );
 
@@ -491,11 +503,16 @@ export function mountAuthRoutes(
     "/auth/delete-token",
     express.urlencoded({ extended: false }),
     async (req, res) => {
+      if (readOnly) {
+        renderError(res, 403, "Credential administration is disabled in read-only mode.");
+        return;
+      }
       const session = await getSession(req);
       if (!session) {
         res.status(401).json({ error: "Not authenticated" });
         return;
       }
+      if (!(await requireValidCsrf(req, res, session))) return;
       const name = typeof req.body?.name === "string" ? req.body.name : null;
       if (!name) {
         res.status(400).json({ error: "Missing name" });
@@ -522,10 +539,11 @@ export function mountAuthRoutes(
       return;
     }
 
-    const [tokens, activeName, apify] = await Promise.all([
+    const [tokens, activeName, apify, csrfToken] = await Promise.all([
       listTokens(session.fbUserId),
       getDefaultTokenName(session.fbUserId),
       getApifyTokenRepo().getStatus(session.fbUserId),
+      issueCsrfToken(session),
     ]);
 
     res.setHeader(
@@ -535,8 +553,8 @@ export function mountAuthRoutes(
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Vary", "Cookie");
 
-    res.type("html").send(
-      renderConnectionsPage({
+      res.type("html").send(
+        renderConnectionsPage({
         user: {
           fbUserId: session.fbUserId,
           email: session.email,
@@ -544,7 +562,9 @@ export function mountAuthRoutes(
         },
         tokens,
         activeName,
-        apify,
+          apify,
+          readOnly,
+          csrfToken,
       }),
     );
   });
@@ -553,6 +573,10 @@ export function mountAuthRoutes(
     "/auth/register-apify-token",
     express.urlencoded({ extended: false }),
     async (req, res) => {
+      if (readOnly) {
+        renderError(res, 403, "Apify credential administration is disabled in read-only mode.");
+        return;
+      }
       if (!isSameOriginPost(req)) {
         logger.warn(
           { event: "cross_origin_post_rejected", path: "/auth/register-apify-token" },
@@ -567,6 +591,7 @@ export function mountAuthRoutes(
         renderError(res, 401, "Session expired. Sign in again.");
         return;
       }
+      if (!(await requireValidCsrf(req, res, session))) return;
 
       const parsed = validateApifyTokenInput(req.body?.apify_token);
       if (!parsed.ok) {
@@ -630,6 +655,10 @@ export function mountAuthRoutes(
     "/auth/delete-apify-token",
     express.urlencoded({ extended: false }),
     async (req, res) => {
+      if (readOnly) {
+        renderError(res, 403, "Apify credential administration is disabled in read-only mode.");
+        return;
+      }
       if (!isSameOriginPost(req)) {
         logger.warn(
           { event: "cross_origin_post_rejected", path: "/auth/delete-apify-token" },
@@ -644,6 +673,7 @@ export function mountAuthRoutes(
         renderError(res, 401, "Session expired. Sign in again.");
         return;
       }
+      if (!(await requireValidCsrf(req, res, session))) return;
 
       // Idempotent on purpose, unlike /auth/delete-token: a resubmitted form or
       // a stale tab should land back on the page, not on an error.

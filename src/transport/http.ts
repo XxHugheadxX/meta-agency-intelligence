@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import express from "express";
 import cors from "cors";
@@ -12,8 +13,13 @@ import { isApiKeyConfigured, validateApiKey } from "../auth/api-key.js";
 import { hashPii, requestContext } from "../auth/token-store.js";
 import { tokenManager } from "../auth/token-manager.js";
 import { configureSessionJtiStore, getSession } from "../auth/session.js";
+import {
+  configureCsrfJtiStore,
+  consumeCsrfToken,
+  issueCsrfToken,
+} from "../auth/csrf.js";
 import { resolveSecurityConfig } from "./security-config.js";
-import { mountAuthRoutes, safeReturnTo } from "./auth-routes.js";
+import { isSameOriginRequest, mountAuthRoutes, safeReturnTo } from "./auth-routes.js";
 import { escapeHtml } from "../utils/html.js";
 import {
   CONNECTIONS_PATH,
@@ -41,12 +47,18 @@ import {
   configureMetaTokenRepo,
   FirestoreMetaTokenRepo,
   InMemoryMetaTokenRepo,
-  getDecryptedToken,
+  resolveToken,
   getDefaultTokenName,
   listTokens,
   setDefaultToken,
 } from "../store/meta-token-repo.js";
-import { isFirestoreEnabled } from "../store/firestore.js";
+import { getFirestore, isFirestoreEnabled } from "../store/firestore.js";
+import {
+  configureAssetBindingRepo,
+  FirestoreAssetBindingRepo,
+  InMemoryAssetBindingRepo,
+  listActiveAssetBindings,
+} from "../store/asset-binding-repo.js";
 import { logger } from "../utils/logger.js";
 import { unsafeIpReason } from "../utils/url-guard.js";
 
@@ -120,6 +132,8 @@ interface ConsentContext {
   tokens: Awaited<ReturnType<typeof listTokens>>;
   activeName: string | null;
   apify: ApifyTokenStatus;
+  readOnly: boolean;
+  csrfToken?: string;
 }
 
 export function renderConsentPage(ctx: ConsentContext): string {
@@ -132,7 +146,6 @@ export function renderConsentPage(ctx: ConsentContext): string {
     .join("\n        ");
 
   const fullPath = "/authorize?" + new URLSearchParams(ctx.query).toString();
-  const returnHidden = `<input type="hidden" name="return" value="${escapeHtml(fullPath)}" />`;
 
   const tokenOptions =
     ctx.tokens.length > 0
@@ -162,7 +175,7 @@ export function renderConsentPage(ctx: ConsentContext): string {
             </label>`;
           })
           .join("\n")
-      : `<p class="no-tokens">No hay tokens conectados. Pega un System User token abajo o cierra sesión y vuelve a iniciar.</p>`;
+      : `<p class="no-tokens">No hay una conexión Meta autorizada para este workspace. Cierra sesión y vuelve a iniciar mediante OAuth.</p>`;
 
   const initials = userInitials(ctx.user);
 
@@ -185,6 +198,7 @@ ${PAGE_STYLES}
         <div class="user-email">${escapeHtml(ctx.user.email ?? ctx.user.fbUserId)}</div>
       </div>
       <form method="POST" action="/auth/logout" class="inline">
+        ${ctx.csrfToken ? `<input type="hidden" name="csrf_token" value="${escapeHtml(ctx.csrfToken)}" />` : ""}
         <button type="submit" class="logout">Salir</button>
       </form>
     </div>
@@ -197,10 +211,9 @@ ${PAGE_STYLES}
     <div class="section">
       <div class="section-title">Permisos solicitados</div>
       <ul class="permissions">
-        <li>• Leer y gestionar cuentas publicitarias de Meta</li>
-        <li>• Crear, actualizar y pausar campañas</li>
+        <li>• Leer cuentas publicitarias de Meta asignadas al workspace</li>
         <li>• Acceder a reportes e insights</li>
-        <li>• Gestionar WhatsApp Business (números, plantillas, flows)</li>
+        <li>• No crear, actualizar, pausar ni eliminar campañas</li>
       </ul>
     </div>
 
@@ -209,22 +222,13 @@ ${PAGE_STYLES}
       ${tokenOptions}
     </div>
 
-    <details>
-      <summary>Registrar System User token (no caduca)</summary>
-      <form method="POST" action="/auth/register-system-token">
-        ${returnHidden}
-        <input type="text" name="name" placeholder="Nombre (ej. byads, client_acme)" required maxlength="64" pattern="[a-zA-Z0-9_-]{1,64}" />
-        <input type="password" name="access_token" placeholder="Pega el System User access token" required minlength="10" autocomplete="off" />
-        <button type="submit">Validar y guardar</button>
-      </form>
-    </details>
-
-    ${renderApifySection({ status: ctx.apify, returnTo: fullPath, variant: "consent" })}
+    ${ctx.readOnly ? "" : renderApifySection({ status: ctx.apify, returnTo: fullPath, variant: "consent", csrfToken: ctx.csrfToken })}
 
     <a class="manage-link" href="${CONNECTIONS_PATH}">Gestionar conexiones →</a>
 
     <form id="approve-form" method="POST" action="/authorize">
       ${hiddenFields}
+      ${ctx.csrfToken ? `<input type="hidden" name="csrf_token" value="${escapeHtml(ctx.csrfToken)}" />` : ""}
       <button type="submit" class="approve" ${ctx.tokens.length === 0 ? "disabled" : ""}>
         ${ctx.tokens.length === 0 ? "Conecta un token primero" : "Aprobar"}
       </button>
@@ -239,7 +243,7 @@ ${PAGE_STYLES}
 </html>`;
 }
 
-function createRateLimiter(maxRequests: number, windowMs: number) {
+export function createRateLimiter(maxRequests: number, windowMs: number) {
   const requests = new Map<string, { count: number; resetAt: number }>();
 
   setInterval(() => {
@@ -249,9 +253,42 @@ function createRateLimiter(maxRequests: number, windowMs: number) {
     }
   }, windowMs).unref();
 
-  return (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+  return async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ): Promise<void> => {
     const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
     const now = Date.now();
+
+    if (process.env.DISTRIBUTED_RATE_LIMIT_BACKEND === "firestore") {
+      const key = createHash("sha256").update(`${ip}:${req.baseUrl}:${req.path}`).digest("hex");
+      const ref = getFirestore().collection("http_rate_limits").doc(key);
+      try {
+        await getFirestore().runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          const data = snap.data();
+          const resetAt = Number(data?.resetAt ?? 0);
+          const count = resetAt > now ? Number(data?.count ?? 0) : 0;
+          if (count >= maxRequests) throw new Error("RATE_LIMITED");
+          tx.set(ref, {
+            count: count + 1,
+            resetAt: resetAt > now ? resetAt : now + windowMs,
+            updatedAt: now,
+          });
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === "RATE_LIMITED") {
+          res.status(429).json({ error: "Too many requests, please try again later" });
+          return;
+        }
+        res.status(503).json({ error: "Rate-limit service unavailable" });
+        return;
+      }
+      next();
+      return;
+    }
+
     const entry = requests.get(ip);
 
     if (!entry || entry.resetAt < now) {
@@ -281,9 +318,10 @@ function extractApiKey(req: express.Request): string | undefined {
 
 function createCombinedAuthMiddleware(
   oauthMiddleware: express.RequestHandler,
+  allowApiKey: boolean,
 ): express.RequestHandler {
   return (req, res, next) => {
-    if (!isApiKeyConfigured()) {
+    if (!allowApiKey || !isApiKeyConfigured()) {
       oauthMiddleware(req, res, next);
       return;
     }
@@ -314,14 +352,27 @@ function createCombinedAuthMiddleware(
   };
 }
 
-function buildMetaTokenMiddleware(
+export function buildMetaTokenMiddleware(
   serverUrl: URL,
   multiTenantEnabled: boolean,
 ): express.RequestHandler {
   return async (req, res, next) => {
     const headerToken = req.headers["x-meta-token"];
-    if (typeof headerToken === "string" && headerToken) {
+    if (
+      !multiTenantEnabled &&
+      process.env.ALLOW_LEGACY_TOKEN_HEADER === "true" &&
+      typeof headerToken === "string" &&
+      headerToken
+    ) {
       requestContext.run({ accessToken: headerToken }, () => next());
+      return;
+    }
+    if (typeof headerToken === "string" && headerToken) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        error: { code: -32600, message: "X-Meta-Token is not accepted by this server" },
+        id: null,
+      });
       return;
     }
 
@@ -331,23 +382,73 @@ function buildMetaTokenMiddleware(
     const fbUserId =
       typeof auth?.extra?.fbUserId === "string" ? auth.extra.fbUserId : undefined;
 
-    if (multiTenantEnabled && fbUserId) {
+    const workspaceId =
+      typeof auth?.extra?.workspaceId === "string"
+        ? auth.extra.workspaceId
+        : fbUserId;
+
+    if (multiTenantEnabled && fbUserId && workspaceId) {
       try {
-        const accessToken = await getDecryptedToken(
-          fbUserId,
+        const resolved = await resolveToken(
+          workspaceId,
           undefined,
           serverUrl,
         );
+        if (resolved.scopes.includes("ads_management")) {
+          throw new Error("Token carries a forbidden write scope");
+        }
+        const bindings = await listActiveAssetBindings(workspaceId);
+        const tokenAccountIds = new Set(
+          resolved.allowedAccountIds.map((id) =>
+            id.startsWith("act_") ? id : `act_${id}`,
+          ),
+        );
+        const tokenAssetIds = new Set(resolved.allowedAssetIds);
+        const allowedAccountIds = new Set(
+          bindings
+            .filter((binding) => binding.kind === "ad_account")
+            .map((binding) =>
+              binding.assetId.startsWith("act_")
+                ? binding.assetId
+                : `act_${binding.assetId}`,
+            )
+            .filter((id) => tokenAccountIds.has(id)),
+        );
+        const allowedPageIds = new Set(
+          bindings
+            .filter((binding) => binding.kind === "page")
+            .map((binding) => binding.assetId)
+            .filter((id) => tokenAssetIds.has(id)),
+        );
+        const allowedInstagramIds = new Set(
+          bindings
+            .filter((binding) => binding.kind === "instagram")
+            .map((binding) => binding.assetId)
+            .filter((id) => tokenAssetIds.has(id)),
+        );
+        const allowedAssetIds = new Set([
+          ...allowedPageIds,
+          ...allowedInstagramIds,
+        ]);
         requestContext.run(
-          { accessToken, fbUserId },
+          {
+            accessToken: resolved.accessToken,
+            fbUserId,
+            tenantId: workspaceId,
+            workspaceId,
+            allowedAccountIds,
+            allowedAssetIds,
+            allowedPageIds,
+            allowedInstagramIds,
+          },
           () => next(),
         );
         return;
-      } catch (err) {
+      } catch {
         logger.warn(
           {
-            fbUserId,
-            error: err instanceof Error ? err.message : String(err),
+            principal: hashPii(fbUserId),
+            event: "workspace_token_resolution_failed",
           },
           "Failed to resolve user Meta token",
         );
@@ -362,6 +463,15 @@ function buildMetaTokenMiddleware(
         });
         return;
       }
+    }
+
+    if (multiTenantEnabled) {
+      res.status(401).json({
+        jsonrpc: "2.0",
+        error: { code: -32001, message: "Authenticated workspace context required" },
+        id: null,
+      });
+      return;
     }
 
     const managerToken = tokenManager.getActiveToken();
@@ -382,7 +492,7 @@ function buildMetaTokenMiddleware(
       error: {
         code: -32603,
         message:
-          "No Meta token configured. Connect via Meta OAuth, set META_ACCESS_TOKEN, or pass X-Meta-Token header.",
+          "No Meta token configured. Connect via Meta OAuth or configure a server-side token.",
       },
       id: null,
     });
@@ -396,6 +506,7 @@ export async function startHttpTransport(
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
   const config = resolveSecurityConfig();
+  const serverUrl = getServerUrl();
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -417,7 +528,6 @@ export async function startHttpTransport(
         "Content-Type",
         "Authorization",
         "X-API-Key",
-        "X-Meta-Token",
         "Mcp-Session-Id",
       ],
       maxAge: 600,
@@ -440,14 +550,12 @@ export async function startHttpTransport(
   if (isProduction) {
     app.use((req, res, next) => {
       if (req.header("x-forwarded-proto") !== "https") {
-        res.redirect(301, `https://${req.header("host")}${req.originalUrl}`);
+        res.redirect(301, new URL(req.originalUrl, serverUrl).toString());
         return;
       }
       next();
     });
   }
-
-  const serverUrl = getServerUrl();
 
   if (config.multiTenantEnabled) {
     if (!isFirestoreEnabled()) {
@@ -464,18 +572,30 @@ export async function startHttpTransport(
         authCodesStore: new InMemoryAuthCodesStore(),
         refreshJtiStore: new InMemoryJtiStore(),
         resolvePendingAuth: () => pendingAuthStorage.getStore() ?? null,
+        securityBinding: {
+          issuerUrl: serverUrl,
+          resourceServerUrl: new URL("/mcp", serverUrl),
+        },
       });
       configureSessionJtiStore(new InMemoryJtiStore());
+      configureCsrfJtiStore(new InMemoryJtiStore());
       configureMetaTokenRepo(new InMemoryMetaTokenRepo());
+      configureAssetBindingRepo(new InMemoryAssetBindingRepo());
     } else {
       oauthProvider.configure({
         clientsStore: new FirestoreClientsStore(),
         authCodesStore: new FirestoreAuthCodesStore(),
         refreshJtiStore: new FirestoreJtiStore("mcp_refresh_jti"),
         resolvePendingAuth: () => pendingAuthStorage.getStore() ?? null,
+        securityBinding: {
+          issuerUrl: serverUrl,
+          resourceServerUrl: new URL("/mcp", serverUrl),
+        },
       });
       configureSessionJtiStore(new FirestoreJtiStore("mcp_session_jti"));
+      configureCsrfJtiStore(new FirestoreJtiStore("mcp_csrf_jti"));
       configureMetaTokenRepo(new FirestoreMetaTokenRepo());
+      configureAssetBindingRepo(new FirestoreAssetBindingRepo());
     }
   }
 
@@ -496,6 +616,7 @@ export async function startHttpTransport(
 
     mountAuthRoutes(app, {
       serverUrl,
+      readOnly: config.mcpMode === "read_only",
       getClient: (id) => oauthProvider.clientsStore.getClient(id),
     });
 
@@ -542,7 +663,7 @@ export async function startHttpTransport(
         return;
       }
 
-      const [tokens, activeName, apify] = await Promise.all([
+      const [tokens, activeName, apify, csrfToken] = await Promise.all([
         listTokens(session.fbUserId),
         getDefaultTokenName(session.fbUserId),
         // Apify is an optional add-on, so a failure reading its status must not
@@ -560,6 +681,7 @@ export async function startHttpTransport(
             );
             return UNKNOWN_APIFY_STATUS;
           }),
+        issueCsrfToken(session),
       ]);
 
       res.setHeader(
@@ -582,6 +704,8 @@ export async function startHttpTransport(
           tokens,
           activeName,
           apify,
+          readOnly: config.mcpMode === "read_only",
+          csrfToken,
         }),
       );
     });
@@ -590,6 +714,14 @@ export async function startHttpTransport(
       "/authorize",
       express.urlencoded({ extended: false }),
       async (req, res, next) => {
+        if (!isSameOriginRequest({
+          secFetchSite: req.get("sec-fetch-site"),
+          origin: req.get("origin"),
+          selfOrigin: serverUrl.origin,
+        })) {
+          res.status(403).type("html").send("<p>Cross-origin request rejected.</p>");
+          return;
+        }
         const session = await getSession(req);
         if (!session) {
           const recoverTo = safeReturnTo(req.body?.return);
@@ -598,6 +730,10 @@ export async function startHttpTransport(
               ? "Vuelve a iniciar la autorización desde tu cliente MCP."
               : `<a href="${escapeHtml(recoverTo)}">Inicia de nuevo</a>.`;
           res.status(401).type("html").send(`<p>Sesión expirada. ${link}</p>`);
+          return;
+        }
+        if (!(await consumeCsrfToken(req.body?.csrf_token, session))) {
+          res.status(403).type("html").send("<p>Invalid or replayed form token.</p>");
           return;
         }
 
@@ -642,7 +778,10 @@ export async function startHttpTransport(
   );
 
   const oauthBearerAuth = requireBearerAuth({ verifier: oauthProvider });
-  const auth = createCombinedAuthMiddleware(oauthBearerAuth);
+  const auth = createCombinedAuthMiddleware(
+    oauthBearerAuth,
+    !config.multiTenantEnabled,
+  );
   const metaTokenMw = buildMetaTokenMiddleware(serverUrl, config.multiTenantEnabled);
 
   app.post("/mcp", auth, metaTokenMw, async (req, res) => {

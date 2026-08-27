@@ -4,7 +4,7 @@ import {
   getSession,
   resetSecretCacheForTests,
   setSession,
-  type SessionPayload,
+  type NewSessionPayload,
 } from "../../src/auth/session.js";
 
 const SECRET = "x".repeat(40);
@@ -47,7 +47,7 @@ describe("session", () => {
 
   it("setSession sets a signed cookie with secure flags", async () => {
     const res = makeRes();
-    const payload: SessionPayload = {
+    const payload: NewSessionPayload = {
       fbUserId: "1234",
       email: "alice@x.com",
       name: "Alice",
@@ -66,7 +66,7 @@ describe("session", () => {
 
   it("getSession reads back the same payload", async () => {
     const res = makeRes();
-    const payload: SessionPayload = {
+    const payload: NewSessionPayload = {
       fbUserId: "1234",
       email: "alice@x.com",
       name: "Alice",
@@ -77,7 +77,8 @@ describe("session", () => {
 
     const fakeReq = { cookies: { mcp_session: cookie } } as never;
     const got = await getSession(fakeReq);
-    expect(got).toEqual(payload);
+    expect(got).toMatchObject(payload);
+    expect(got?.sessionId).toMatch(/^[a-f0-9]{32}$/);
   });
 
   it("getSession returns null for missing or tampered cookies", async () => {

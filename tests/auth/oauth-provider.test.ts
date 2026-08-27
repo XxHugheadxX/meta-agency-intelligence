@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Response } from "express";
 import { SignJWT } from "jose";
 import {
-  oauthProvider,
+  oauthProvider as rawOAuthProvider,
   resetOAuthProviderForTests,
 } from "../../src/auth/oauth-provider.js";
 import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -12,11 +12,47 @@ import {
 } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 
 const original = process.env.OAUTH_SECRET;
+const ISSUER = new URL("https://auth.example.com/");
+const RESOURCE = new URL("https://mcp.example.com/mcp");
+const REDIRECT_URI = "https://example.com/cb";
+
+const oauthProvider = {
+  configure: rawOAuthProvider.configure.bind(rawOAuthProvider),
+  authorize(
+    client: OAuthClientInformationFull,
+    params: Parameters<typeof rawOAuthProvider.authorize>[1],
+    res: Response,
+  ) {
+    return rawOAuthProvider.authorize(
+      client,
+      { ...params, resource: params.resource ?? RESOURCE },
+      res,
+    );
+  },
+  exchangeAuthorizationCode(
+    client: OAuthClientInformationFull,
+    code: string,
+    verifier?: string,
+    redirectUri: string = REDIRECT_URI,
+    resource: URL = RESOURCE,
+  ) {
+    return rawOAuthProvider.exchangeAuthorizationCode(
+      client,
+      code,
+      verifier,
+      redirectUri,
+      resource,
+    );
+  },
+  exchangeRefreshToken: rawOAuthProvider.exchangeRefreshToken.bind(rawOAuthProvider),
+  verifyAccessToken: rawOAuthProvider.verifyAccessToken.bind(rawOAuthProvider),
+  revokeToken: rawOAuthProvider.revokeToken.bind(rawOAuthProvider),
+};
 
 const fakeClient: OAuthClientInformationFull = {
   client_id: "test-client",
   client_name: "Test",
-  redirect_uris: ["https://example.com/cb"],
+  redirect_uris: [REDIRECT_URI],
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
   token_endpoint_auth_method: "none",
@@ -34,6 +70,10 @@ describe("MetaAdsOAuthProvider", () => {
   beforeEach(() => {
     process.env.OAUTH_SECRET = "x".repeat(64);
     resetOAuthProviderForTests();
+    oauthProvider.configure({
+      securityBinding: { issuerUrl: ISSUER, resourceServerUrl: RESOURCE },
+      resolvePendingAuth: () => ({ fbUserId: "fb-default" }),
+    });
   });
 
   afterEach(() => {
@@ -82,6 +122,74 @@ describe("MetaAdsOAuthProvider", () => {
     expect(
       (authInfo.extra as Record<string, unknown> | undefined)?.metaTokenName,
     ).toBeUndefined();
+    expect(authInfo.extra).toMatchObject({
+      tenantId: "fb-1234",
+      workspaceId: "fb-1234",
+    });
+    expect(authInfo.resource?.href).toBe(RESOURCE.href);
+  });
+
+  it("fails closed when issuer/resource configuration or tenant context is absent", async () => {
+    resetOAuthProviderForTests();
+    await expect(
+      rawOAuthProvider.authorize(
+        fakeClient,
+        {
+          codeChallenge: "ch",
+          codeChallengeMethod: "S256",
+          redirectUri: REDIRECT_URI,
+          scopes: [],
+          resource: RESOURCE,
+        },
+        fakeRes(),
+      ),
+    ).rejects.toThrow(/issuer and MCP resource/);
+
+    rawOAuthProvider.configure({
+      securityBinding: { issuerUrl: ISSUER, resourceServerUrl: RESOURCE },
+    });
+    await expect(
+      rawOAuthProvider.authorize(
+        fakeClient,
+        {
+          codeChallenge: "ch",
+          codeChallengeMethod: "S256",
+          redirectUri: REDIRECT_URI,
+          scopes: [],
+          resource: RESOURCE,
+        },
+        fakeRes(),
+      ),
+    ).rejects.toThrow(/tenant context/);
+  });
+
+  it("rejects an authorization request for a different or omitted resource", async () => {
+    await expect(
+      rawOAuthProvider.authorize(
+        fakeClient,
+        {
+          codeChallenge: "ch",
+          codeChallengeMethod: "S256",
+          redirectUri: REDIRECT_URI,
+          scopes: [],
+          resource: new URL("https://other.example/mcp"),
+        },
+        fakeRes(),
+      ),
+    ).rejects.toThrow(/resource/);
+
+    await expect(
+      rawOAuthProvider.authorize(
+        fakeClient,
+        {
+          codeChallenge: "ch",
+          codeChallengeMethod: "S256",
+          redirectUri: REDIRECT_URI,
+          scopes: [],
+        },
+        fakeRes(),
+      ),
+    ).rejects.toThrow(/resource/);
   });
 
   it("rejects auth code that was issued to a different client", async () => {
@@ -397,6 +505,46 @@ describe("MetaAdsOAuthProvider", () => {
     ).rejects.toBeInstanceOf(InvalidTokenError);
   });
 
+  it("verifyAccessToken rejects wrong issuer and missing tenant claims", async () => {
+    const secret = new TextEncoder().encode("x".repeat(64));
+    const now = Math.floor(Date.now() / 1000);
+    const claims = {
+      sub: "test-client",
+      type: "access",
+      resource: RESOURCE.href,
+      fb_user_id: "fb-1",
+      tenant_id: "tenant-1",
+      workspace_id: "workspace-1",
+    };
+    const wrongIssuer = await new SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt(now)
+      .setExpirationTime(now + 60)
+      .setIssuer("https://evil.example/")
+      .setAudience(RESOURCE.href)
+      .sign(secret);
+    await expect(
+      oauthProvider.verifyAccessToken(wrongIssuer),
+    ).rejects.toBeInstanceOf(InvalidTokenError);
+
+    const missingTenant = await new SignJWT({
+      sub: "test-client",
+      type: "access",
+      resource: RESOURCE.href,
+      fb_user_id: "fb-1",
+      workspace_id: "workspace-1",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt(now)
+      .setExpirationTime(now + 60)
+      .setIssuer(ISSUER.href)
+      .setAudience(RESOURCE.href)
+      .sign(secret);
+    await expect(
+      oauthProvider.verifyAccessToken(missingTenant),
+    ).rejects.toThrow(/tenant context/);
+  });
+
   it("exchangeRefreshToken rejects invalid tokens with InvalidGrantError", async () => {
     await expect(
       oauthProvider.exchangeRefreshToken(fakeClient, "not-a-jwt"),
@@ -443,5 +591,37 @@ describe("MetaAdsOAuthProvider", () => {
     expect(
       (authInfo.extra as Record<string, unknown> | undefined)?.metaTokenName,
     ).toBeUndefined();
+    expect(authInfo.extra).toMatchObject({
+      tenantId: "fb-9999",
+      workspaceId: "fb-9999",
+    });
+    expect(authInfo.resource?.href).toBe(RESOURCE.href);
+  });
+
+  it("rejects a refresh request that tries to switch resources", async () => {
+    const res = fakeRes();
+    await oauthProvider.authorize(
+      fakeClient,
+      {
+        codeChallenge: "ch",
+        codeChallengeMethod: "S256",
+        redirectUri: REDIRECT_URI,
+        scopes: [],
+      },
+      res,
+    );
+    const code = new URL(
+      (res.redirect as never as ReturnType<typeof vi.fn>).mock.calls[0][1],
+    ).searchParams.get("code")!;
+    const tokens = await oauthProvider.exchangeAuthorizationCode(fakeClient, code);
+
+    await expect(
+      oauthProvider.exchangeRefreshToken(
+        fakeClient,
+        tokens.refresh_token!,
+        undefined,
+        new URL("https://other.example/mcp"),
+      ),
+    ).rejects.toThrow(/resource/);
   });
 });

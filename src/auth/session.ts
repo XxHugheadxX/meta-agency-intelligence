@@ -20,7 +20,10 @@ export interface SessionPayload {
   fbUserId: string;
   email: string | null;
   name: string | null;
+  sessionId: string;
 }
+
+export type NewSessionPayload = Omit<SessionPayload, "sessionId">;
 
 let cachedSecret: Uint8Array | undefined;
 
@@ -56,7 +59,7 @@ export function configureSessionJtiStore(store: JtiStore): void {
 
 export async function setSession(
   res: Response,
-  payload: SessionPayload,
+  payload: NewSessionPayload,
 ): Promise<void> {
   const secret = getSecret();
   const now = Math.floor(Date.now() / 1000);
@@ -119,6 +122,7 @@ export async function getSession(
       fbUserId: payload.fb,
       email: typeof payload.em === "string" ? payload.em : null,
       name: typeof payload.nm === "string" ? payload.nm : null,
+      sessionId: payload.jti,
     };
   } catch {
     return null;

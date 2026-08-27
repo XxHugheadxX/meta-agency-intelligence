@@ -58,7 +58,11 @@ describe("MetaApiClient", () => {
       const url = new URL(vi.mocked(fetch).mock.calls[0][0] as string);
       expect(url.pathname).toBe("/v22.0/123");
       expect(url.searchParams.get("fields")).toBe("id,name");
-      expect(url.searchParams.get("access_token")).toBe("test-access-token");
+      expect(url.searchParams.get("access_token")).toBeNull();
+      const options = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+      expect(new Headers(options.headers).get("Authorization")).toBe(
+        "Bearer test-access-token",
+      );
     });
 
     it("omits undefined params", async () => {
@@ -88,8 +92,8 @@ describe("MetaApiClient", () => {
       expect(result).toEqual({ id: "new_123" });
       const call = vi.mocked(fetch).mock.calls[0];
       expect(call[1]?.method).toBe("POST");
-      expect(call[1]?.headers).toEqual(
-        expect.objectContaining({ "Content-Type": "application/json" }),
+      expect(new Headers(call[1]?.headers).get("Content-Type")).toBe(
+        "application/json",
       );
     });
   });
@@ -103,10 +107,8 @@ describe("MetaApiClient", () => {
 
       const call = vi.mocked(fetch).mock.calls[0];
       expect(call[1]?.method).toBe("POST");
-      expect(call[1]?.headers).toEqual(
-        expect.objectContaining({
-          "Content-Type": "application/x-www-form-urlencoded",
-        }),
+      expect(new Headers(call[1]?.headers).get("Content-Type")).toBe(
+        "application/x-www-form-urlencoded",
       );
       expect(call[1]?.body).toContain("status=PAUSED");
     });

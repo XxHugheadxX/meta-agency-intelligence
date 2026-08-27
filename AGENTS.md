@@ -11,6 +11,31 @@ A Model Context Protocol server that brokers Meta Ads API access for advertising
 - **Deploy**: push to `main` triggers [.github/workflows/deploy.yml](.github/workflows/deploy.yml). PRs trigger [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - **License**: MIT. **Repository is public on GitHub.**
 
+## Local execution rule: no npm
+
+- AI agents must not execute `npm` or `npx` commands in this repository.
+- In an existing checkout, invoke the installed binaries in `node_modules/.bin`
+  directly for lint, typecheck, tests, and builds.
+- Do not migrate the upstream lockfile, publishing flow, or CI package manager as
+  part of an unrelated change. Treat that migration as a separate, reviewed PR.
+- References to npm below document the current upstream workflow; they are not
+  authorization for an agent to execute those commands.
+
+## Project continuity context
+
+Before changing product scope, architecture, authentication, data storage,
+reporting, scheduling, or recommendations, read these files completely:
+
+- `docs/PROJECT_CONTEXT.md`
+- `docs/SECURITY_REQUIREMENTS.md`
+- `docs/REPORTING_REQUIREMENTS.md`
+- `docs/PRODUCT_ROADMAP.md`
+- `docs/MODEL_DELEGATION_POLICY.md`
+- `SECURITY_AUDIT.md`
+
+Keep them synchronized when a reviewed decision changes. Do not treat roadmap
+items as authorization to connect real accounts or broaden write permissions.
+
 ## Conventions specific to this repo (v3.0.0+)
 
 - **Tool naming**: `ads_*` prefix (no `meta_`). `ad_set` with underscore (not `adset`). Aligned with Meta's official MCP server (`mcp.facebook.com/ads`). See [docs/migration-v3.md](docs/migration-v3.md) for the full rationale.

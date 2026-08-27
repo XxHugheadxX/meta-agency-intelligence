@@ -4,6 +4,8 @@ export interface SecurityConfig {
   metaAppConfigured: boolean;
   allowlistConfigured: boolean;
   multiTenantEnabled: boolean;
+  mcpMode: "read_only" | "write";
+  allowLeadPii: boolean;
 }
 
 function readEnvVar(env: NodeJS.ProcessEnv, key: string): string {
@@ -85,6 +87,12 @@ export function resolveSecurityConfig(
 
   const allowlistConfigured = hasAllowlist(env);
   const multiTenantEnabled = metaAppConfigured;
+  const rawMode = readEnvVar(env, "MCP_MODE") || "read_only";
+  if (rawMode !== "read_only" && rawMode !== "write") {
+    throw new Error("MCP_MODE must be either read_only or write");
+  }
+  const mcpMode = rawMode;
+  const allowLeadPii = readEnvVar(env, "ALLOW_LEAD_PII").toLowerCase() === "true";
 
   if (multiTenantEnabled) {
     if (!tokenEncryptionKey) {
@@ -103,15 +111,41 @@ export function resolveSecurityConfig(
         "Allowlist required: set AUTH_ALLOWED_EMAILS, AUTH_ALLOWED_DOMAINS, or AUTH_ALLOWED_FB_USER_IDS",
       );
     }
+
+    // A tenant-bearing OAuth identity is the only supported trust boundary in
+    // multi-tenant mode. Global credentials cannot be safely assigned to a
+    // workspace and therefore must never coexist with this deployment mode.
+    for (const key of ["META_ACCESS_TOKEN", "META_TOKENS", "MCP_API_KEY"] as const) {
+      if (readEnvVar(env, key)) {
+        throw new Error(`${key} is forbidden when multi-tenant Meta OAuth is enabled`);
+      }
+    }
+  }
+
+  if (mcpMode === "read_only" && allowLeadPii) {
+    throw new Error("ALLOW_LEAD_PII cannot be enabled in the read-only reporting service");
   }
 
   if (isProduction) {
     requireSecret(oauthSecret, "OAUTH_SECRET", 32);
+    if (mcpMode !== "read_only") {
+      throw new Error("Production deployments must use MCP_MODE=read_only");
+    }
+    if (
+      multiTenantEnabled &&
+      readEnvVar(env, "DISTRIBUTED_RATE_LIMIT_BACKEND") !== "firestore"
+    ) {
+      throw new Error(
+        "DISTRIBUTED_RATE_LIMIT_BACKEND=firestore is required for production multi-tenant mode",
+      );
+    }
   }
 
   return {
     metaAppConfigured,
     allowlistConfigured,
     multiTenantEnabled,
+    mcpMode,
+    allowLeadPii,
   };
 }

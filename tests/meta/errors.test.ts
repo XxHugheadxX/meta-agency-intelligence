@@ -108,11 +108,11 @@ describe("mapMetaErrorToMcp (legacy)", () => {
     expect(err.message).toContain("code 9999");
   });
 
-  it("includes original Meta error message", () => {
+  it("does not reflect the original Meta error message", () => {
     const err = mapMetaErrorToMcp(
       makeError({ code: 190, message: "Token expired at 2024-01-01" }),
     );
-    expect(err.message).toContain("Token expired at 2024-01-01");
+    expect(err.message).not.toContain("Token expired at 2024-01-01");
   });
 });
 

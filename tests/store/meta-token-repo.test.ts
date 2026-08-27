@@ -132,12 +132,62 @@ describe("InMemoryMetaTokenRepo", () => {
       accessToken: "new-token",
       expiresAt: Math.floor(Date.now() / 1000) + 60 * 24 * 60 * 60,
     });
+    vi.spyOn(metaOAuth, "inspectReportingToken").mockResolvedValueOnce({
+      appId: APP_ID,
+      userId: "fb-1",
+      scopes: ["ads_read", "pages_read_engagement"],
+      granularScopes: [
+        { scope: "ads_read", targetIds: ["100"] },
+        { scope: "pages_read_engagement", targetIds: ["page-1"] },
+      ],
+      expiresAt: Math.floor(Date.now() / 1000) + 50 * 24 * 60 * 60,
+      dataAccessExpiresAt: Math.floor(Date.now() / 1000) + 80 * 24 * 60 * 60,
+      assetIds: ["100", "page-1"],
+    });
+    vi.spyOn(metaOAuth, "fetchAccessibleAssets").mockResolvedValueOnce({
+      accountIds: ["act_200"],
+      assetIds: ["act_200", "page-2"],
+    });
 
-    const plaintext = await repo.getDecryptedToken("fb-1", "personal", SERVER_URL);
-    expect(plaintext).toBe("new-token");
+    const refreshed = await repo.resolveToken("fb-1", "personal", SERVER_URL);
+    expect(refreshed).toMatchObject({
+      accessToken: "new-token",
+      scopes: ["ads_read", "pages_read_engagement"],
+      granularScopes: [
+        { scope: "ads_read", targetIds: ["100"] },
+        { scope: "pages_read_engagement", targetIds: ["page-1"] },
+      ],
+      allowedAccountIds: ["act_100", "act_200"],
+      allowedAssetIds: ["100", "act_200", "fb-1", "page-1", "page-2"],
+    });
+    expect(refreshed.dataAccessExpiresAt).toBeGreaterThan(0);
 
     const second = await repo.getDecryptedToken("fb-1", "personal", SERVER_URL);
     expect(second).toBe("new-token");
+  });
+
+  it("does not persist a refreshed Meta token when re-introspection fails", async () => {
+    const soon = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
+    await repo.saveToken(
+      makeInput({
+        accessToken: "existing-token",
+        expiresAt: soon,
+        scopes: ["ads_read"],
+        allowedAccountIds: ["act_existing"],
+      }),
+    );
+    vi.spyOn(metaOAuth, "exchangeForLongLivedToken").mockResolvedValueOnce({
+      accessToken: "unverified-new-token",
+      expiresAt: soon + 1_000,
+    });
+    vi.spyOn(metaOAuth, "inspectReportingToken").mockRejectedValueOnce(
+      new Error("forbidden scope"),
+    );
+
+    const resolved = await repo.resolveToken("fb-1", "personal", SERVER_URL);
+    expect(resolved.accessToken).toBe("existing-token");
+    expect(resolved.scopes).toEqual(["ads_read"]);
+    expect(resolved.allowedAccountIds).toEqual(["act_existing"]);
   });
 
   it("returns existing plaintext when refresh fails but token is not yet expired", async () => {
@@ -172,7 +222,7 @@ describe("InMemoryMetaTokenRepo", () => {
   it("throws when the named token does not exist", async () => {
     await repo.saveToken(makeInput({ name: "a" }));
     await expect(repo.getDecryptedToken("fb-1", "missing")).rejects.toThrow(
-      /not found for user/,
+      /not found for this workspace/,
     );
   });
 

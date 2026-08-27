@@ -12,6 +12,12 @@ const KEYS = [
   "AUTH_ALLOWED_DOMAINS",
   "AUTH_ALLOWED_FB_USER_IDS",
   "OAUTH_APPROVAL_PIN",
+  "MCP_MODE",
+  "ALLOW_LEAD_PII",
+  "META_ACCESS_TOKEN",
+  "META_TOKENS",
+  "MCP_API_KEY",
+  "DISTRIBUTED_RATE_LIMIT_BACKEND",
 ] as const;
 
 const originalEnv: Record<(typeof KEYS)[number], string | undefined> =
@@ -42,6 +48,8 @@ describe("resolveSecurityConfig", () => {
       metaAppConfigured: false,
       allowlistConfigured: false,
       multiTenantEnabled: false,
+      mcpMode: "read_only",
+      allowLeadPii: false,
     });
   });
 
@@ -81,6 +89,8 @@ describe("resolveSecurityConfig", () => {
       metaAppConfigured: true,
       allowlistConfigured: true,
       multiTenantEnabled: true,
+      mcpMode: "read_only",
+      allowLeadPii: false,
     });
   });
 
@@ -145,5 +155,45 @@ describe("resolveSecurityConfig", () => {
   it("warns but does not throw when OAUTH_APPROVAL_PIN is set", () => {
     process.env.OAUTH_APPROVAL_PIN = "placeholder";
     expect(() => resolveSecurityConfig()).not.toThrow();
+  });
+
+  it.each(["META_ACCESS_TOKEN", "META_TOKENS", "MCP_API_KEY"] as const)(
+    "forbids global credential %s in multi-tenant mode",
+    (key) => {
+      process.env.META_APP_ID = "1234";
+      process.env.META_APP_SECRET = "shh";
+      process.env.TOKEN_ENCRYPTION_KEY = HEX64;
+      process.env.SESSION_COOKIE_SECRET = SECRET32;
+      process.env.AUTH_ALLOWED_EMAILS = "alice@x.com";
+      process.env[key] = "global-credential-fixture";
+      expect(() => resolveSecurityConfig()).toThrow(new RegExp(key));
+    },
+  );
+
+  it("rejects lead PII in the read-only service", () => {
+    process.env.MCP_MODE = "read_only";
+    process.env.ALLOW_LEAD_PII = "true";
+    expect(() => resolveSecurityConfig()).toThrow(/ALLOW_LEAD_PII/);
+  });
+
+  it("requires a distributed limiter in production multi-tenant mode", () => {
+    process.env.NODE_ENV = "production";
+    process.env.OAUTH_SECRET = OAUTH32;
+    process.env.META_APP_ID = "1234";
+    process.env.META_APP_SECRET = "shh";
+    process.env.TOKEN_ENCRYPTION_KEY = HEX64;
+    process.env.SESSION_COOKIE_SECRET = SECRET32;
+    process.env.AUTH_ALLOWED_EMAILS = "alice@x.com";
+    expect(() => resolveSecurityConfig()).toThrow(/DISTRIBUTED_RATE_LIMIT_BACKEND/);
+  });
+
+  it("rejects write mode in production", () => {
+    process.env.NODE_ENV = "production";
+    process.env.OAUTH_SECRET = OAUTH32;
+    process.env.MCP_MODE = "write";
+
+    expect(() => resolveSecurityConfig()).toThrow(
+      "Production deployments must use MCP_MODE=read_only",
+    );
   });
 });

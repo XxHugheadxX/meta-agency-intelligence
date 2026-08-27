@@ -5,6 +5,12 @@ import { tokenManager } from "./token-manager.js";
 export interface RequestContext {
   accessToken: string;
   fbUserId?: string;
+  tenantId?: string;
+  workspaceId?: string;
+  allowedAccountIds?: ReadonlySet<string>;
+  allowedAssetIds?: ReadonlySet<string>;
+  allowedPageIds?: ReadonlySet<string>;
+  allowedInstagramIds?: ReadonlySet<string>;
 }
 
 /**
@@ -44,6 +50,28 @@ export function getAccessToken(): string {
   throw new Error(
     "No Meta access token available. Connect via Meta OAuth, register a token, or set META_ACCESS_TOKEN.",
   );
+}
+
+export interface TenantContext {
+  tenantId: string;
+  workspaceId: string;
+  allowedAccountIds: ReadonlySet<string>;
+  allowedAssetIds: ReadonlySet<string>;
+  allowedPageIds: ReadonlySet<string>;
+  allowedInstagramIds: ReadonlySet<string>;
+}
+
+export function getTenantContext(): TenantContext | null {
+  const ctx = requestContext.getStore();
+  if (!ctx?.tenantId || !ctx.workspaceId) return null;
+  return {
+    tenantId: ctx.tenantId,
+    workspaceId: ctx.workspaceId,
+    allowedAccountIds: ctx.allowedAccountIds ?? new Set<string>(),
+    allowedAssetIds: ctx.allowedAssetIds ?? new Set<string>(),
+    allowedPageIds: ctx.allowedPageIds ?? new Set<string>(),
+    allowedInstagramIds: ctx.allowedInstagramIds ?? new Set<string>(),
+  };
 }
 
 export function getCurrentFbUserId(): string | undefined {

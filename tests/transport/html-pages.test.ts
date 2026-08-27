@@ -213,7 +213,7 @@ describe("renderConnectionsPage", () => {
   it("does not throw with zero Meta tokens", () => {
     const html = renderConnectionsPage({ ...base, tokens: [], activeName: null });
     expect(html).toContain("no-tokens");
-    expect(html).toContain("No hay tokens de Meta");
+    expect(html).toContain("No hay una conexión Meta autorizada");
   });
 
   it("embeds the Apify section", () => {

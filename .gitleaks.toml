@@ -162,14 +162,12 @@ paths = [
 #
 # Stating the flag on each entry makes the list mean the same thing on every
 # gitleaks version, regardless of ordering.
+# Common placeholders and case-sensitive synthetic test values. Comments stay
+# outside the TOML array so the config-validation test can parse every entry.
 regexes = [
-  # Common placeholder values used in docs and examples.
   '''(?i)YOUR_(META|OAUTH|TOKEN|SESSION|MCP|API)_[A-Z_]+''',
   '''(?i)EXAMPLE_(SECRET|KEY|TOKEN)''',
   '''(?i)<your-[a-z-]+>''',
-  # Synthetic values used in tests — clearly not real secrets. Case-sensitive
-  # on purpose: an uppercase TEST/DUMMY inside an otherwise real-looking
-  # credential must NOT buy an exemption.
   '''(?-i)dummy[-_]?(token|secret|key)''',
   '''(?-i)test[-_]?(token|secret|key)''',
   '''(?-i)fixture''',

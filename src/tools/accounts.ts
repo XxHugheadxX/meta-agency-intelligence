@@ -14,6 +14,7 @@ import type {
   MetaApiResponse,
 } from "../meta/types/index.js";
 import { READ } from "./_register.js";
+import { getTenantContext } from "../auth/token-store.js";
 
 export function registerAccountTools(server: McpServer): void {
   // ─── Get Ad Accounts ─────────────────────────────────────────
@@ -41,18 +42,30 @@ export function registerAccountTools(server: McpServer): void {
       annotations: { ...READ },
     },
     async ({ user_id, limit, fields }) => {
-      const userPath = user_id === "me" ? "me" : validateMetaId(user_id, "user");
       const fieldsParam = buildFieldsParam(
         fields,
         [...AD_ACCOUNT_DEFAULT_FIELDS],
       );
-
-      const response = await metaApiClient.get<MetaApiResponse<AdAccount>>(
-        `/${userPath}/adaccounts`,
-        { fields: fieldsParam, limit },
-      );
-
-      const accounts = response.data ?? [];
+      const tenant = getTenantContext();
+      let accounts: AdAccount[];
+      if (tenant) {
+        if (user_id !== "me") {
+          throw new Error("Workspace-scoped account listing only supports user_id=me");
+        }
+        const accountIds = [...tenant.allowedAccountIds].slice(0, limit);
+        accounts = await Promise.all(
+          accountIds.map((id) =>
+            metaApiClient.get<AdAccount>(`/${id}`, { fields: fieldsParam }),
+          ),
+        );
+      } else {
+        const userPath = user_id === "me" ? "me" : validateMetaId(user_id, "user");
+        const response = await metaApiClient.get<MetaApiResponse<AdAccount>>(
+          `/${userPath}/adaccounts`,
+          { fields: fieldsParam, limit },
+        );
+        accounts = response.data ?? [];
+      }
 
       const text = accounts.length === 0
         ? "No ad accounts found for this user."
@@ -143,11 +156,20 @@ export function registerAccountTools(server: McpServer): void {
           pages = response.data ?? [];
         }
       } else {
-        const response = await metaApiClient.get<MetaApiResponse<Page>>(
-          "/me/accounts",
-          { fields: fieldsParam },
-        );
-        pages = response.data ?? [];
+        const tenant = getTenantContext();
+        if (tenant) {
+          pages = await Promise.all(
+            [...tenant.allowedPageIds].map((id) =>
+              metaApiClient.get<Page>(`/${id}`, { fields: fieldsParam }),
+            ),
+          );
+        } else {
+          const response = await metaApiClient.get<MetaApiResponse<Page>>(
+            "/me/accounts",
+            { fields: fieldsParam },
+          );
+          pages = response.data ?? [];
+        }
       }
 
       const text =

@@ -124,9 +124,7 @@ describe("isSameOriginRequest", () => {
     expect(isSameOriginRequest({ origin, selfOrigin })).toBe(expected);
   });
 
-  it("allows a request carrying neither header", () => {
-    // Not a browser form post, so no ambient cookie to abuse; the session
-    // check still gates it.
-    expect(isSameOriginRequest({ selfOrigin })).toBe(true);
+  it("fails closed when neither browser provenance header is present", () => {
+    expect(isSameOriginRequest({ selfOrigin })).toBe(false);
   });
 });

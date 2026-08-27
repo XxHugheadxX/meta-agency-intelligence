@@ -5,15 +5,22 @@ const META_GRAPH = "https://graph.facebook.com";
 const META_OAUTH_DIALOG = "https://www.facebook.com";
 
 const DEFAULT_SCOPES = [
-  "ads_management",
   "ads_read",
   "pages_show_list",
   "pages_read_engagement",
-  "business_management",
-  "whatsapp_business_management",
+  "read_insights",
+  "instagram_basic",
+  "instagram_manage_insights",
   "email",
   "public_profile",
 ];
+
+const REQUIRED_REPORTING_SCOPES = new Set(["ads_read"]);
+const FORBIDDEN_REPORTING_SCOPES = new Set([
+  "ads_management",
+  "whatsapp_business_management",
+  "whatsapp_business_messaging",
+]);
 
 export interface MetaOAuthConfig {
   appId: string;
@@ -63,20 +70,21 @@ export async function exchangeCodeForToken(
   code: string,
 ): Promise<ShortLivedToken> {
   const url = new URL(`/${config.apiVersion}/oauth/access_token`, META_GRAPH);
-  url.searchParams.set("client_id", config.appId);
-  url.searchParams.set("client_secret", config.appSecret);
-  url.searchParams.set("redirect_uri", config.redirectUri);
-  url.searchParams.set("code", code);
-
-  const response = await fetch(url.toString());
+  const form = new URLSearchParams({
+    client_id: config.appId,
+    client_secret: config.appSecret,
+    redirect_uri: config.redirectUri,
+    code,
+  });
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
   const body = (await response.json()) as Record<string, unknown>;
 
   if (!response.ok || body.error) {
-    const message =
-      typeof body.error === "object" && body.error && "message" in body.error
-        ? String((body.error as { message?: unknown }).message)
-        : `HTTP ${response.status}`;
-    throw new Error(`Meta code exchange failed: ${message}`);
+    throw new Error(`Meta code exchange failed with HTTP ${response.status}`);
   }
 
   return {
@@ -95,20 +103,21 @@ export async function exchangeForLongLivedToken(
   shortLivedToken: string,
 ): Promise<LongLivedToken> {
   const url = new URL(`/${config.apiVersion}/oauth/access_token`, META_GRAPH);
-  url.searchParams.set("grant_type", "fb_exchange_token");
-  url.searchParams.set("client_id", config.appId);
-  url.searchParams.set("client_secret", config.appSecret);
-  url.searchParams.set("fb_exchange_token", shortLivedToken);
-
-  const response = await fetch(url.toString());
+  const form = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: config.appId,
+    client_secret: config.appSecret,
+    fb_exchange_token: shortLivedToken,
+  });
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
   const body = (await response.json()) as Record<string, unknown>;
 
   if (!response.ok || body.error) {
-    const message =
-      typeof body.error === "object" && body.error && "message" in body.error
-        ? String((body.error as { message?: unknown }).message)
-        : `HTTP ${response.status}`;
-    throw new Error(`Meta long-lived swap failed: ${message}`);
+    throw new Error(`Meta long-lived swap failed with HTTP ${response.status}`);
   }
 
   const accessToken = String(body.access_token);
@@ -137,17 +146,13 @@ export async function fetchProfile(
     "fields",
     "id,name,email,picture.width(200).height(200)",
   );
-  url.searchParams.set("access_token", accessToken);
-
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   const body = (await response.json()) as Record<string, unknown>;
 
   if (!response.ok || body.error) {
-    const message =
-      typeof body.error === "object" && body.error && "message" in body.error
-        ? String((body.error as { message?: unknown }).message)
-        : `HTTP ${response.status}`;
-    throw new Error(`Meta /me fetch failed: ${message}`);
+    throw new Error(`Meta profile request failed with HTTP ${response.status}`);
   }
 
   let pictureUrl: string | null = null;
@@ -170,15 +175,189 @@ export async function fetchProfile(
 export async function validateToken(
   accessToken: string,
   apiVersion: string = META_API_VERSION,
+  config?: MetaOAuthConfig,
 ): Promise<{ valid: boolean; profile?: MetaProfile; error?: string }> {
   try {
+    if (config) await inspectReportingToken(config, accessToken);
     const profile = await fetchProfile(accessToken, apiVersion);
     return { valid: true, profile };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ error: message }, "Meta token validation failed");
-    return { valid: false, error: message };
+    logger.warn({ event: "meta_token_validation_failed" }, "Meta token validation failed");
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : "Meta token validation failed",
+    };
   }
+}
+
+export interface ReportingTokenInspection {
+  appId: string;
+  userId: string;
+  scopes: string[];
+  granularScopes: MetaGranularScope[];
+  expiresAt: number;
+  dataAccessExpiresAt: number;
+  assetIds: string[];
+}
+
+export interface MetaGranularScope {
+  scope: string;
+  targetIds: string[];
+}
+
+function parseGranularScopes(value: unknown): MetaGranularScope[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("Meta token introspection returned invalid granular scopes");
+  }
+
+  return value.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("Meta token introspection returned invalid granular scopes");
+    }
+    const scope = (item as { scope?: unknown }).scope;
+    const targetIds = (item as { target_ids?: unknown }).target_ids;
+    if (typeof scope !== "string" || !scope) {
+      throw new Error("Meta token introspection returned invalid granular scopes");
+    }
+    if (targetIds !== undefined && !Array.isArray(targetIds)) {
+      throw new Error("Meta token introspection returned invalid granular scopes");
+    }
+    const parsedTargets = (targetIds ?? []).map((targetId) => {
+      if (typeof targetId !== "string" || !targetId) {
+        throw new Error("Meta token introspection returned invalid granular scopes");
+      }
+      return targetId;
+    });
+    return { scope, targetIds: [...new Set(parsedTargets)].sort() };
+  });
+}
+
+/** Validate token provenance and least privilege without putting secrets in a URL. */
+export async function inspectReportingToken(
+  config: MetaOAuthConfig,
+  accessToken: string,
+): Promise<ReportingTokenInspection> {
+  const url = new URL(`/${config.apiVersion}/debug_token`, META_GRAPH);
+  const form = new URLSearchParams({ input_token: accessToken });
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.appId}|${config.appSecret}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  });
+  const body = (await response.json()) as {
+    data?: {
+      app_id?: unknown;
+      user_id?: unknown;
+      is_valid?: unknown;
+      scopes?: unknown;
+      granular_scopes?: unknown;
+      expires_at?: unknown;
+      data_access_expires_at?: unknown;
+    };
+  };
+  const data = body.data;
+  if (
+    !response.ok ||
+    data?.is_valid !== true ||
+    data.app_id !== config.appId ||
+    typeof data.user_id !== "string" ||
+    !data.user_id ||
+    !Array.isArray(data.scopes) ||
+    data.scopes.some((scope) => typeof scope !== "string" || !scope) ||
+    typeof data.expires_at !== "number" ||
+    typeof data.data_access_expires_at !== "number"
+  ) {
+    throw new Error("Meta token provenance validation failed");
+  }
+  const granularScopes = parseGranularScopes(data.granular_scopes);
+  const scopes = [
+    ...new Set([
+      ...(data.scopes as string[]),
+      ...granularScopes.map(({ scope }) => scope),
+    ]),
+  ].sort();
+  for (const required of REQUIRED_REPORTING_SCOPES) {
+    if (!scopes.includes(required)) {
+      throw new Error(`Meta token is missing required reporting scope: ${required}`);
+    }
+  }
+  for (const forbidden of FORBIDDEN_REPORTING_SCOPES) {
+    if (scopes.includes(forbidden)) {
+      throw new Error(`Meta token contains forbidden write scope: ${forbidden}`);
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = data.expires_at;
+  const dataAccessExpiresAt = data.data_access_expires_at;
+  if (expiresAt !== 0 && expiresAt <= now) {
+    throw new Error("Meta token has expired");
+  }
+  if (
+    dataAccessExpiresAt !== 0 &&
+    dataAccessExpiresAt <= now
+  ) {
+    throw new Error("Meta token data access has expired");
+  }
+
+  return {
+    appId: config.appId,
+    userId: data.user_id,
+    scopes,
+    granularScopes,
+    expiresAt,
+    dataAccessExpiresAt,
+    assetIds: [
+      ...new Set(granularScopes.flatMap(({ targetIds }) => targetIds)),
+    ].sort(),
+  };
+}
+
+export interface AccessibleMetaAssets {
+  accountIds: string[];
+  assetIds: string[];
+}
+
+export async function fetchAccessibleAssets(
+  accessToken: string,
+  apiVersion: string = META_API_VERSION,
+): Promise<AccessibleMetaAssets> {
+  const fetchIds = async (path: string, fields: string): Promise<string[]> => {
+    const url = new URL(`/${apiVersion}${path}`, META_GRAPH);
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("limit", "500");
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const body = (await response.json()) as {
+      data?: Array<{
+        id?: unknown;
+        account_id?: unknown;
+        instagram_business_account?: { id?: unknown };
+      }>;
+    };
+    if (!response.ok) throw new Error(`Meta asset discovery failed with HTTP ${response.status}`);
+    return (body.data ?? []).flatMap((item) => {
+      const value = typeof item.account_id === "string" ? `act_${item.account_id}` : item.id;
+      const values = typeof value === "string" ? [value] : [];
+      const instagramId = item.instagram_business_account?.id;
+      if (typeof instagramId === "string") values.push(instagramId);
+      return values;
+    });
+  };
+
+  const [accounts, pages] = await Promise.all([
+    fetchIds("/me/adaccounts", "id,account_id"),
+    fetchIds("/me/accounts", "id,instagram_business_account{id}"),
+  ]);
+  return {
+    accountIds: [...new Set(accounts)],
+    assetIds: [...new Set([...accounts, ...pages])],
+  };
 }
 
 export interface MetaBusiness {
@@ -193,18 +372,17 @@ export async function fetchPrimaryBusiness(
   const url = new URL(`/${apiVersion}/me/businesses`, META_GRAPH);
   url.searchParams.set("fields", "id,name");
   url.searchParams.set("limit", "1");
-  url.searchParams.set("access_token", accessToken);
-
   try {
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     const body = (await response.json()) as Record<string, unknown>;
 
     if (!response.ok || body.error) {
-      const message =
-        typeof body.error === "object" && body.error && "message" in body.error
-          ? String((body.error as { message?: unknown }).message)
-          : `HTTP ${response.status}`;
-      logger.warn({ error: message }, "Meta /me/businesses fetch failed");
+      logger.warn(
+        { event: "meta_business_discovery_failed", status: response.status },
+        "Meta business discovery failed",
+      );
       return null;
     }
 
@@ -218,9 +396,8 @@ export async function fetchPrimaryBusiness(
       id,
       name: typeof name === "string" ? name : null,
     };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ error: message }, "Meta /me/businesses fetch threw");
+  } catch {
+    logger.warn({ event: "meta_business_discovery_error" }, "Meta business discovery failed");
     return null;
   }
 }
