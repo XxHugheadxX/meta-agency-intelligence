@@ -4,3 +4,4 @@ export * from "./excel/index.js";
 export * from "./segmentation/index.js";
 export * from "./recommendations/index.js";
 export * from "./ingestion/index.js";
+export * from "./worker/index.js";

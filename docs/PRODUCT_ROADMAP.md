@@ -99,6 +99,12 @@ negocio usando fixtures.
 
 ## Fase 5 — Scheduler y operación
 
+**Estado:** orquestador inicial del worker implementado en
+`feature/agency-ingestion-worker`, con identidad y firma como dependencias
+obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
+Faltan verificación OIDC concreta, endpoint interno, repositorios Firestore del
+control plane, cola, leases, reintentos y dead-letter queue.
+
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
 - Observabilidad por job/tenant sin PII.

@@ -33,9 +33,13 @@ normaliza métricas y sólo avanza el watermark cuando la ventana completa qued�
 persistida. Los checkpoints y el histórico tienen implementaciones en memoria
 y Firestore; las pruebas usan exclusivamente respuestas sintéticas.
 
-Todavía no existe un scheduler ni un worker desplegado que resuelva bindings y
-credenciales mediante identidad de workload. Tampoco se implementó la ingesta
-orgánica de Pages/Instagram ni se validaron contratos contra una Meta test app.
+`src/agency/worker/` contiene la orquestación inicial del worker: exige una
+identidad de workload verificada, valida un payload firmado con clave pública,
+resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
+ejecuta Ads Insights dentro de un contexto backend GET-only. Todavía no existe
+un endpoint OIDC ni un scheduler desplegado, y los repositorios operativos del
+control plane siguen pendientes. Tampoco se implementó la ingesta orgánica de
+Pages/Instagram ni se validaron contratos contra una Meta test app.
 
 ## Arquitectura objetivo
 
