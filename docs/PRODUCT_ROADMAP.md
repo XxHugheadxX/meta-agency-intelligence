@@ -54,6 +54,11 @@ checkpoints monotónicos, replay idempotente y aislamiento probado con datos
 sintéticos. Pages/Instagram orgánico, worker/scheduler, bindings de producción
 y contract tests con una Meta test app siguen pendientes.
 
+La rama `feature/firestore-ingestion-integration` añade persistencia
+transaccional, checkpoints monotónicos ante concurrencia y una suite contra
+Firestore Emulator. El gate no queda cerrado hasta ejecutar esa suite en un
+equipo con el emulador disponible y ensayar backup/restore y retención.
+
 - Clientes read-only para Ads, Facebook e Instagram.
 - Jobs idempotentes, watermarks, paginación y backfill.
 - Normalización de moneda, timezone, atribución y breakdowns.

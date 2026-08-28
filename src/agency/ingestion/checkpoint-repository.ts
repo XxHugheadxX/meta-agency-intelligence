@@ -50,6 +50,32 @@ function validateCheckpoint(scope: ReportingScope, checkpoint: IngestionCheckpoi
   }
 }
 
+function isNewerCheckpoint(
+  candidate: IngestionCheckpoint,
+  existing: IngestionCheckpoint,
+): boolean {
+  return candidate.watermarkDate > existing.watermarkDate || (
+    candidate.watermarkDate === existing.watermarkDate &&
+    candidate.completedAt > existing.completedAt
+  );
+}
+
+function readStoredCheckpoint(
+  scope: ReportingScope,
+  id: string,
+  data: unknown,
+): IngestionCheckpoint {
+  if (!data || typeof data !== "object") {
+    throw new Error("Stored ingestion checkpoint is not an object");
+  }
+  const checkpoint = data as IngestionCheckpoint;
+  validateCheckpoint(scope, checkpoint);
+  if (ingestionCheckpointId(scope, checkpoint) !== id) {
+    throw new Error("Stored ingestion checkpoint identity does not match the requested key");
+  }
+  return checkpoint;
+}
+
 export class InMemoryIngestionCheckpointRepository implements IngestionCheckpointRepository {
   private readonly checkpoints = new Map<string, IngestionCheckpoint>();
 
@@ -63,7 +89,11 @@ export class InMemoryIngestionCheckpointRepository implements IngestionCheckpoin
 
   async save(scope: ReportingScope, checkpoint: IngestionCheckpoint): Promise<void> {
     validateCheckpoint(scope, checkpoint);
-    this.checkpoints.set(ingestionCheckpointId(scope, checkpoint), structuredClone(checkpoint));
+    const id = ingestionCheckpointId(scope, checkpoint);
+    const existing = this.checkpoints.get(id);
+    if (!existing || isNewerCheckpoint(checkpoint, existing)) {
+      this.checkpoints.set(id, structuredClone(checkpoint));
+    }
   }
 }
 
@@ -86,18 +116,25 @@ export class FirestoreIngestionCheckpointRepository implements IngestionCheckpoi
   ): Promise<IngestionCheckpoint | null> {
     const snapshot = await this.collection(scope).doc(ingestionCheckpointId(scope, key)).get();
     if (!snapshot.exists) return null;
-    const checkpoint = snapshot.data() as IngestionCheckpoint;
-    validateCheckpoint(scope, checkpoint);
-    if (ingestionCheckpointId(scope, checkpoint) !== ingestionCheckpointId(scope, key)) {
-      throw new Error("Stored ingestion checkpoint identity does not match the requested key");
-    }
+    const checkpoint = readStoredCheckpoint(
+      scope,
+      ingestionCheckpointId(scope, key),
+      snapshot.data(),
+    );
     return structuredClone(checkpoint);
   }
 
   async save(scope: ReportingScope, checkpoint: IngestionCheckpoint): Promise<void> {
     validateCheckpoint(scope, checkpoint);
-    await this.collection(scope)
-      .doc(ingestionCheckpointId(scope, checkpoint))
-      .set(checkpoint, { merge: false });
+    const id = ingestionCheckpointId(scope, checkpoint);
+    const reference = this.collection(scope).doc(id);
+    await this.db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (snapshot.exists) {
+        const existing = readStoredCheckpoint(scope, id, snapshot.data());
+        if (!isNewerCheckpoint(checkpoint, existing)) return;
+      }
+      transaction.set(reference, checkpoint, { merge: false });
+    });
   }
 }

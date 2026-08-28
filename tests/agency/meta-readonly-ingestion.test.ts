@@ -345,4 +345,37 @@ describe("Meta read-only ingestion", () => {
       rowsWritten: 1,
     })).rejects.toThrow("scope");
   });
+
+  it("never lets a stale or earlier concurrent checkpoint lower the watermark", async () => {
+    const checkpoints = new InMemoryIngestionCheckpointRepository();
+    const key = {
+      accountId: account.accountId,
+      level: "ad" as const,
+      attributionWindow: "7d_click",
+      breakdowns: ["age"],
+      apiVersion: "v25.0",
+    };
+    const newer = {
+      ...tenantA,
+      ...key,
+      watermarkDate: "2026-08-20",
+      completedAt: "2026-08-28T12:00:00.000Z",
+      rowsWritten: 2,
+    };
+    const stale = {
+      ...tenantA,
+      ...key,
+      watermarkDate: "2026-08-19",
+      completedAt: "2026-08-29T12:00:00.000Z",
+      rowsWritten: 1,
+    };
+
+    await Promise.all([checkpoints.save(tenantA, newer), checkpoints.save(tenantA, stale)]);
+
+    await expect(checkpoints.get(tenantA, key)).resolves.toMatchObject({
+      watermarkDate: "2026-08-20",
+      completedAt: "2026-08-28T12:00:00.000Z",
+      rowsWritten: 2,
+    });
+  });
 });
