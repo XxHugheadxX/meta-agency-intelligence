@@ -1,7 +1,10 @@
 import express from "express";
 import { describe, expect, it, vi } from "vitest";
 import { createReportingJobHttpRouter } from "../../src/agency/worker/reporting-job-http-handler.js";
-import { ReportingBackpressureError } from "../../src/agency/scheduler/index.js";
+import {
+  encodeReportingPubSubData,
+  ReportingBackpressureError,
+} from "../../src/agency/scheduler/index.js";
 import type { AgencyReportingWorkerResult } from "../../src/agency/worker/types.js";
 import { tenantA } from "./fixtures.js";
 
@@ -90,6 +93,33 @@ describe("reporting job HTTP handler", () => {
     expect(serialized).not.toContain("objectKey");
     expect(serialized).not.toContain("scheduler-oidc");
     expect(serialized).not.toContain("tenant-a");
+  });
+
+  it("accepts an authenticated wrapped Pub/Sub message and uses only header authorization", async () => {
+    const identities = verifiedIdentity();
+    const worker = { run: vi.fn().mockResolvedValue(result) };
+    const signed = { payload: '{"tenantId":"tenant-a"}', signature: "valid_signature" };
+    await withRouter(worker, identities, async (url) => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: "Bearer pubsub-oidc", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: {
+            data: encodeReportingPubSubData(signed),
+            messageId: "123456789",
+            attributes: { authorization: "Bearer embedded-attacker-value" },
+          },
+          subscription: "projects/agency-project/subscriptions/agency-reporting-push",
+          deliveryAttempt: 1,
+        }),
+      });
+      expect(response.status).toBe(200);
+    });
+    expect(worker.run).toHaveBeenCalledWith({
+      authorization: "Bearer pubsub-oidc",
+      ...signed,
+    });
+    expect(JSON.stringify(worker.run.mock.calls)).not.toContain("embedded-attacker-value");
   });
 
   it("rejects malformed or expanded request bodies before invoking the worker", async () => {

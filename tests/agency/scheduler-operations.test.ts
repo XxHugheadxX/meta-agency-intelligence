@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   createReportingDeadLetterRecord,
+  decodeReportingPubSubPush,
+  encodeReportingPubSubData,
   ReportingBackpressureError,
   ReportingConcurrencyGate,
   ReportingRetryPolicy,
@@ -158,6 +160,39 @@ describe("reporting scheduler operations", () => {
     expect(JSON.stringify(record)).not.toContain(secret);
     expect(JSON.stringify(record)).not.toContain("signed-payload");
     expect(JSON.stringify(record)).not.toContain("synthetic-signature");
+  });
+
+  it("round-trips a bounded Pub/Sub push envelope without accepting embedded authorization", () => {
+    const signed = { payload: "{\"tenantId\":\"tenant-a\"}", signature: "valid_signature" };
+    const push = {
+      message: {
+        data: encodeReportingPubSubData(signed),
+        messageId: "123456789",
+        publishTime: "2026-08-31T08:00:00.000Z",
+        attributes: { authorization: "Bearer attacker-controlled" },
+      },
+      subscription: "projects/agency-project/subscriptions/agency-reporting-push",
+      deliveryAttempt: 2,
+    };
+    const decoded = decodeReportingPubSubPush(push);
+    expect(decoded).toEqual(signed);
+    expect(JSON.stringify(decoded)).not.toContain("attacker-controlled");
+  });
+
+  it("rejects malformed, oversized, or expanded Pub/Sub envelopes", () => {
+    const base = {
+      message: { data: "e30=", messageId: "123" },
+      subscription: "projects/agency-project/subscriptions/agency-reporting-push",
+    };
+    expect(decodeReportingPubSubPush({ ...base, unexpected: true })).toBeNull();
+    expect(decodeReportingPubSubPush({
+      ...base,
+      message: { ...base.message, data: "not-base64" },
+    })).toBeNull();
+    expect(decodeReportingPubSubPush({
+      ...base,
+      message: { ...base.message, data: "A".repeat(40_000) },
+    })).toBeNull();
   });
 
   it("validates configuration and retry inputs", () => {

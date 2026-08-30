@@ -6,12 +6,14 @@ import express, {
 import type { AgencyReportingWorker } from "./reporting-worker.js";
 import type { IngestionJobEnvelope, WorkloadIdentityVerifier } from "./types.js";
 import { assertSchedulerIdentity } from "./worker.js";
-import { ReportingBackpressureError } from "../scheduler/index.js";
+import {
+  decodeReportingPubSubPush,
+  parseSignedReportingMessage,
+  ReportingBackpressureError,
+} from "../scheduler/index.js";
 
 const MAX_AUTHORIZATION_BYTES = 16 * 1024;
-const MAX_PAYLOAD_BYTES = 16 * 1024;
-const MAX_SIGNATURE_BYTES = 1024;
-const MAX_BODY_BYTES = 20 * 1024;
+const MAX_BODY_BYTES = 32 * 1024;
 
 export type ReportingJobWorker = Pick<AgencyReportingWorker, "run">;
 
@@ -37,24 +39,8 @@ function authorizationFromRequest(request: { headers: { authorization?: string |
 }
 
 function envelopeFromBody(value: unknown, authorization: string): IngestionJobEnvelope | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const body = value as Record<string, unknown>;
-  const fields = Object.keys(body);
-  if (
-    fields.length !== 2 ||
-    !fields.includes("payload") ||
-    !fields.includes("signature") ||
-    typeof body.payload !== "string" ||
-    typeof body.signature !== "string" ||
-    Buffer.byteLength(body.payload, "utf8") === 0 ||
-    Buffer.byteLength(body.payload, "utf8") > MAX_PAYLOAD_BYTES ||
-    Buffer.byteLength(body.signature, "utf8") === 0 ||
-    Buffer.byteLength(body.signature, "utf8") > MAX_SIGNATURE_BYTES ||
-    !/^[A-Za-z0-9_-]+$/.test(body.signature)
-  ) {
-    return null;
-  }
-  return { authorization, payload: body.payload, signature: body.signature };
+  const message = parseSignedReportingMessage(value) ?? decodeReportingPubSubPush(value);
+  return message ? { authorization, payload: message.payload, signature: message.signature } : null;
 }
 
 function unauthorized(response: { status(code: number): { json(body: unknown): unknown }; setHeader(name: string, value: string): unknown }): void {

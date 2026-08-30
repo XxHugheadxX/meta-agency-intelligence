@@ -1,7 +1,8 @@
 # Identidad del scheduler
 
 `GoogleOidcWorkloadIdentityVerifier` valida la identidad OIDC usada por Cloud
-Scheduler o Cloud Tasks antes de resolver conexiones o tokens Meta.
+Scheduler, Cloud Tasks o una suscripción push de Pub/Sub antes de resolver
+conexiones o tokens Meta.
 
 Controles aplicados:
 
@@ -33,8 +34,10 @@ El transporte HTTP monta `POST /internal/agency/reporting/jobs` únicamente
 cuando el gate fail-closed valida modo read-only, OAuth multi-tenant, Firestore,
 GCS privado, identidad OIDC y clave pública de firma. La autenticación y el rol
 `scheduler` se validan antes de parsear el JSON, cuyo tamaño queda limitado a
-20 KiB. La respuesta contiene únicamente `jobId` y `artifactId`.
+32 KiB. El body puede ser directo o el envelope estándar de Pub/Sub; en ambos
+casos sólo se extraen `payload` y `signature`. La respuesta contiene únicamente
+`jobId` y `artifactId`.
 
-No se han configurado todavía una service account, audiencia ni cuenta Meta
-reales. Falta provisionar el plano de control y validar el flujo completo en
-staging antes de habilitar `AGENCY_REPORTING_JOBS_ENABLED=true`.
+No se han configurado todavía una service account, audiencia, cola ni cuenta
+Meta reales. Falta provisionar y validar el flujo completo en staging antes de
+habilitar `AGENCY_REPORTING_JOBS_ENABLED=true`.
