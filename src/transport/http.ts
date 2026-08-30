@@ -67,6 +67,7 @@ import {
   GcsReportObjectStore,
 } from "../agency/delivery/index.js";
 import {
+  createReportingJobEndpointDependencies,
   createReportingJobHttpRouter,
   type ReportingJobEndpointDependencies,
 } from "../agency/worker/index.js";
@@ -517,6 +518,12 @@ export async function startHttpTransport(
   const isProduction = process.env.NODE_ENV === "production";
   const config = resolveSecurityConfig();
   const serverUrl = getServerUrl();
+  const configuredReportingJobs = options.reportingJobs ??
+    createReportingJobEndpointDependencies({
+      getDb: getFirestore,
+      security: config,
+      serverUrl,
+    }) ?? undefined;
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -566,13 +573,13 @@ export async function startHttpTransport(
     });
   }
 
-  if (options.reportingJobs) {
+  if (configuredReportingJobs) {
     app.use(
       "/internal/agency/reporting/jobs",
       createRateLimiter(10, 60 * 1000),
       createReportingJobHttpRouter(
-        options.reportingJobs.worker,
-        options.reportingJobs.identities,
+        configuredReportingJobs.worker,
+        configuredReportingJobs.identities,
       ),
     );
   }
