@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Meta Agency Intelligence automatiza reportes, histórico y análisis read-only para agencias inmobiliarias."
+    />
+    <title>Meta Agency Intelligence | Reporting inmobiliario</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#inicio" aria-label="Meta Agency Intelligence, inicio">
+        <span class="brand-mark" aria-hidden="true">MA</span>
+        <span>Meta Agency <strong>Intelligence</strong></span>
+      </a>
+      <nav aria-label="Navegación principal">
+        <a href="#beneficios">Beneficios</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#seguridad">Seguridad</a>
+      </nav>
+      <a class="button button-small button-ghost" href="#piloto">Solicitar piloto</a>
+    </header>
+
+    <main>
+      <section class="hero" id="inicio">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> Reporting inmobiliario, sin trabajo manual</div>
+          <h1>Convierte tus datos de Meta en decisiones claras.</h1>
+          <p class="hero-lead">
+            Centraliza hasta 20 cuentas, conserva el histórico y recibe reportes
+            semanales y mensuales en Excel, listos para presentar a cada cliente.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#piloto">Quiero probarlo</a>
+            <a class="text-link" href="#como-funciona">Ver cómo funciona <span>→</span></a>
+          </div>
+          <div class="trust-row" aria-label="Características principales">
+            <span>✓ Solo lectura</span>
+            <span>✓ Multi-cuenta</span>
+            <span>✓ Excel editable</span>
+          </div>
+        </div>
+
+        <div class="product-stage" aria-label="Vista previa del dashboard de rendimiento">
+          <div class="dashboard-card">
+            <div class="dashboard-head">
+              <div>
+                <span class="dashboard-label">PORTAFOLIO</span>
+                <strong>Resumen de rendimiento</strong>
+              </div>
+              <div class="period-switch" role="group" aria-label="Periodo de ejemplo">
+                <button class="period active" type="button" data-period="week">Semana</button>
+                <button class="period" type="button" data-period="month">Mes</button>
+              </div>
+            </div>
+            <div class="kpi-grid">
+              <article><span>Inversión</span><strong data-kpi="spend">Bs 4.820</strong><small>↗ 8,4%</small></article>
+              <article><span>Leads</span><strong data-kpi="leads">146</strong><small>↗ 12,1%</small></article>
+              <article><span>CPL</span><strong data-kpi="cpl">Bs 33,01</strong><small class="neutral">↓ 3,7%</small></article>
+            </div>
+            <div class="chart-panel">
+              <div class="chart-title"><span>Leads por día</span><strong data-chart-total>146 leads</strong></div>
+              <div class="bars" aria-hidden="true">
+                <i style="--h: 34%"></i><i style="--h: 55%"></i><i style="--h: 47%"></i>
+                <i style="--h: 72%"></i><i style="--h: 61%"></i><i style="--h: 88%"></i><i style="--h: 76%"></i>
+              </div>
+              <div class="chart-days"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+            </div>
+            <div class="campaign-row">
+              <span class="campaign-rank">01</span>
+              <div><strong>Captación — Zona Norte</strong><small>43 leads · CPL Bs 27,80</small></div>
+              <span class="status-pill">Mejor campaña</span>
+            </div>
+          </div>
+          <div class="floating-note">
+            <span>Recomendación</span>
+            <strong>La audiencia 25–34 mejora su CTR sin elevar el CPL.</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="proof-strip" aria-label="Valor principal">
+        <p><strong>Menos horas armando reportes.</strong> Más tiempo explicando resultados.</p>
+        <div><span>20</span> cuentas piloto</div>
+        <div><span>10</span> hojas por reporte</div>
+        <div><span>0</span> cambios automáticos</div>
+      </section>
+
+      <section class="section" id="beneficios">
+        <div class="section-heading">
+          <span class="section-number">01</span>
+          <div><p class="eyebrow">Lo que resuelve</p><h2>Un sistema pensado para agencias que necesitan demostrar resultados.</h2></div>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card feature-dark">
+            <span class="feature-index">A</span>
+            <h3>Una vista para todo el portafolio</h3>
+            <p>Compara cuentas, campañas, conjuntos y anuncios sin consolidar archivos manualmente.</p>
+            <div class="mini-ranking"><span>1</span><b>Agente Norte</b><em>43 leads</em></div>
+            <div class="mini-ranking"><span>2</span><b>Agente Centro</b><em>37 leads</em></div>
+            <div class="mini-ranking"><span>3</span><b>Agente Sur</b><em>29 leads</em></div>
+          </article>
+          <article class="feature-card">
+            <span class="feature-index">B</span>
+            <h3>Excel profesional y editable</h3>
+            <p>Dashboards, tablas filtrables, tendencias, embudo y datos fuente en un archivo sin macros.</p>
+            <div class="sheet-tabs"><span>Resumen</span><span>Campañas</span><span>Raw Data</span></div>
+            <div class="sheet-lines"><i></i><i></i><i></i><i></i></div>
+          </article>
+          <article class="feature-card feature-accent">
+            <span class="feature-index">C</span>
+            <h3>Recomendaciones con evidencia</h3>
+            <p>Detecta cambios de CTR, CPC, CPL, frecuencia y segmentación, sin modificar campañas.</p>
+            <blockquote>“Revisar la frecuencia de Zona Este: subió 28% mientras el CTR cayó.”</blockquote>
+          </article>
+        </div>
+      </section>
+
+      <section class="section workflow" id="como-funciona">
+        <div class="section-heading">
+          <span class="section-number">02</span>
+          <div><p class="eyebrow">Flujo simple</p><h2>De Meta al reporte, con trazabilidad en cada paso.</h2></div>
+        </div>
+        <ol class="steps">
+          <li><span>01</span><div><h3>Conecta</h3><p>Autoriza las cuentas y activos permitidos para cada workspace.</p></div></li>
+          <li><span>02</span><div><h3>Consolida</h3><p>Guarda histórico diario con tenant, periodo y fuente identificados.</p></div></li>
+          <li><span>03</span><div><h3>Analiza</h3><p>Calcula KPIs, comparaciones, rankings y oportunidades.</p></div></li>
+          <li><span>04</span><div><h3>Entrega</h3><p>Genera Excel semanal o mensual y lo distribuye de forma privada.</p></div></li>
+        </ol>
+      </section>
+
+      <section class="security-section" id="seguridad">
+        <div class="security-copy">
+          <p class="eyebrow eyebrow-light">Seguridad por diseño</p>
+          <h2>Analiza campañas sin entregar capacidad para modificarlas.</h2>
+          <p>El MVP trabaja con mínimo privilegio, aislamiento por tenant y credenciales exclusivamente en backend.</p>
+        </div>
+        <div class="security-list">
+          <div><span>01</span><p><strong>Read-only</strong>Sin creación, edición o pausa de campañas.</p></div>
+          <div><span>02</span><p><strong>Tokens protegidos</strong>Cifrados con AES-256-GCM y nunca enviados al frontend.</p></div>
+          <div><span>03</span><p><strong>Aislamiento</strong>Cada cuenta, reporte y activo queda ligado a su workspace.</p></div>
+          <div><span>04</span><p><strong>Datos mínimos</strong>Los reportes generales no incluyen PII cruda de leads.</p></div>
+        </div>
+      </section>
+
+      <section class="cta" id="piloto">
+        <span class="cta-kicker">Piloto controlado · hasta 20 cuentas</span>
+        <h2>Deja de construir reportes.<br />Empieza a interpretar resultados.</h2>
+        <p>Únete a la primera prueba de Meta Agency Intelligence para agencias inmobiliarias.</p>
+        <a class="button button-light" href="mailto:piloto@example.com?subject=Piloto%20Meta%20Agency%20Intelligence">Solicitar acceso al piloto</a>
+      </section>
+    </main>
+
+    <footer>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">MA</span><span>Meta Agency <strong>Intelligence</strong></span></div>
+      <p>Prototipo conceptual. No afiliado, asociado ni respaldado por Meta Platforms, Inc.</p>
+      <span>© 2026</span>
+    </footer>
+  </body>
+</html>
