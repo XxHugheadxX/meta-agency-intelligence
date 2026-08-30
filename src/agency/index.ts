@@ -5,3 +5,4 @@ export * from "./segmentation/index.js";
 export * from "./recommendations/index.js";
 export * from "./ingestion/index.js";
 export * from "./worker/index.js";
+export * from "./mvp/index.js";

@@ -6,6 +6,14 @@ Una fase no autoriza conectar cuentas reales por sí sola. Cada fase termina con
 tests, revisión de seguridad y criterios de salida verificables. Los cambios se
 trabajan en ramas y no se fusionan automáticamente.
 
+## Integración MVP read-only
+
+**Estado:** `mvp/read-only-reporting` conecta la ingesta sintética de Ads
+Insights con histórico, reporting y el generador XLSX profesional. La prueba
+end-to-end valida KPIs, aislamiento, formato ZIP/OOXML, diez hojas esperadas y
+ausencia de tokens en el workbook. Falta ejecutar el mismo contrato contra una
+Meta Test App y Firestore Emulator antes de usar activos reales.
+
 ## Fase 0 — Auditoría y hardening
 
 **Estado de código:** hardening Critical/High implementado y testeado en
