@@ -8,6 +8,7 @@ export * from "./firestore-reporting-runtime.js";
 export * from "./reporting-worker.js";
 export * from "./google-oidc-verifier.js";
 export * from "./reporting-job-lease-repository.js";
+export * from "./reporting-job-config.js";
 export {
   createReportingJobHttpRouter,
   type ReportingJobEndpointDependencies,
