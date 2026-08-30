@@ -7,6 +7,12 @@ push estándar de Pub/Sub. La identidad OIDC se verifica antes de parsear el bod
 y el payload conserva una firma RSA independiente. No se ha creado ningún
 recurso Google Cloud ni se ha iniciado sesión en un proyecto real.
 
+`ReportingJobFanOut` prepara un job determinista por cuenta activa, valida que
+todas pertenezcan al tenant/workspace solicitado, firma el JSON mediante una
+interfaz inyectable y publica solamente `{ payload, signature }`. El adaptador
+real de cuentas, Cloud KMS y Pub/Sub continúa pendiente para staging; una clave
+privada no debe almacenarse en variables de entorno ni en Firestore.
+
 ## Topología propuesta
 
 ```text
@@ -118,3 +124,5 @@ leases, circuit breakers y límites internos siguen siendo obligatorios.
 5. Forzar duplicados, 429, firma inválida y agotamiento hasta DLQ.
 6. Confirmar ausencia de tokens y payloads en logs y dead-letter metadata.
 7. Ejecutar carga equivalente a veinte cuentas antes de cualquier cuenta real.
+8. Implementar el signer con Cloud KMS y limitar `cloudkms.cryptoKeyVersions.useToSign`
+   a la identidad dedicada del fan-out.
