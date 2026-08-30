@@ -31,6 +31,15 @@ export interface ReportArtifactStore {
     scope: ReportingScope,
     artifactId: string,
   ): Promise<StoredReportArtifact | null>;
+  read(
+    scope: ReportingScope,
+    artifactId: string,
+  ): Promise<ReportArtifactContent | null>;
+}
+
+export interface ReportArtifactContent {
+  readonly metadata: StoredReportArtifact;
+  readonly bytes: Uint8Array;
 }
 
 export interface ReportObjectStore {
@@ -38,5 +47,10 @@ export interface ReportObjectStore {
     readonly objectKey: string;
     readonly contentType: string;
     readonly bytes: Uint8Array;
+    readonly sha256: string;
   }): Promise<void>;
+  getObject(input: {
+    readonly objectKey: string;
+    readonly maxBytes: number;
+  }): Promise<Uint8Array | null>;
 }

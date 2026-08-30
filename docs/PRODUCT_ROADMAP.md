@@ -112,10 +112,11 @@ negocio usando fixtures.
 **Estado:** orquestador inicial del worker implementado en
 `feature/agency-ingestion-worker`, con identidad y firma como dependencias
 obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
-La rama MVP añade el worker de reporting y entrega mediante un contrato de
-object storage con metadata Firestore aislada. Faltan el adaptador GCS, la
-verificación OIDC concreta, endpoint interno, repositorios Firestore del control
-plane, cola, leases, reintentos y dead-letter queue.
+La rama MVP añade el worker de reporting, metadata Firestore aislada, adaptador
+GCS con identidad de workload y endpoint de descarga autenticado tenant-scoped.
+Faltan aprovisionar y validar el bucket/IAM/CMEK reales, la verificación OIDC del
+scheduler, repositorios Firestore del control plane, cola, leases, reintentos y
+dead-letter queue.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
@@ -164,8 +165,8 @@ Orden recomendado:
 
 1. Revisar las ramas encadenadas y decidir su integración sin merge automático.
 2. Crear tests de integración de histórico/checkpoints con Firestore emulator.
-3. Implementar el adaptador GCS privado y el endpoint autenticado de descarga
-   con URLs firmadas de corta duración.
+3. Aprovisionar el bucket GCS privado y validar IAM, CMEK, lifecycle y descarga
+   proxy en staging con archivos sintéticos.
 4. Añadir lectores read-only de Pages e Instagram orgánico.
 5. Ejecutar contract tests en una Meta test app sin cuentas reales.
 6. Ensayar rotación y restore de claves con documentos ficticios.

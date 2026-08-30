@@ -7,8 +7,8 @@
 - **Cliente objetivo:** agencias inmobiliarias pequeñas y agentes individuales.
 - **Piloto inicial:** aproximadamente 20 perfiles o cuentas de Meta.
 - **Estado de referencia:** seguridad, histórico, reporting, Excel,
-  segmentación, ingesta read-only, pipeline MVP y worker de entrega interna
-  implementados en ramas encadenadas; sin cuentas reales conectadas.
+  segmentación, ingesta read-only, pipeline MVP, entrega GCS privada y descarga
+  autenticada implementados en ramas encadenadas; sin cuentas reales conectadas.
 - **Repositorio de trabajo:** `XxHugheadxX/meta-agency-intelligence` privado.
   El fork público se conserva exclusivamente como upstream de lectura.
 

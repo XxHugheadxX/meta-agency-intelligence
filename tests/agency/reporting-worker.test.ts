@@ -68,7 +68,9 @@ function workerHarness(
 
 describe("agency reporting worker", () => {
   it("runs secure ingestion, creates Excel, and returns only tenant-scoped metadata", async () => {
-    const artifacts = new InMemoryReportArtifactStore();
+    const artifacts = new InMemoryReportArtifactStore(
+      () => Date.parse("2026-08-31T08:00:00.000Z"),
+    );
     const calls: Array<{ path: string; token: string }> = [];
     const client: ReadOnlyMetaClient = {
       async get<T>(path: string) {

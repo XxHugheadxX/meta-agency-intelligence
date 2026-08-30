@@ -8,6 +8,7 @@ import {
 } from "../historical-data/index.js";
 import type {
   ReportArtifactStore,
+  ReportArtifactContent,
   ReportObjectStore,
   StoredReportArtifact,
   StoreReportArtifactInput,
@@ -121,6 +122,8 @@ export class InMemoryReportArtifactStore implements ReportArtifactStore {
   private readonly artifacts = new Map<string, StoredReportArtifact>();
   private readonly bytes = new Map<string, Uint8Array>();
 
+  constructor(private readonly now: () => number = Date.now) {}
+
   async store(
     scope: ReportingScope,
     input: StoreReportArtifactInput,
@@ -150,12 +153,23 @@ export class InMemoryReportArtifactStore implements ReportArtifactStore {
     );
     return bytes?.slice() ?? null;
   }
+
+  async read(
+    scope: ReportingScope,
+    artifactId: string,
+  ): Promise<ReportArtifactContent | null> {
+    const metadata = await this.getMetadata(scope, artifactId);
+    if (!metadata || Date.parse(metadata.expiresAt) <= this.now()) return null;
+    const bytes = this.readBytes(scope, artifactId);
+    return bytes ? { metadata, bytes } : null;
+  }
 }
 
 export class FirestoreReportArtifactStore implements ReportArtifactStore {
   constructor(
     private readonly db: Firestore,
     private readonly objects: ReportObjectStore,
+    private readonly now: () => number = Date.now,
   ) {}
 
   private collection(scope: ReportingScope) {
@@ -204,6 +218,7 @@ export class FirestoreReportArtifactStore implements ReportArtifactStore {
         objectKey,
         contentType: input.report.contentType,
         bytes: input.report.bytes.slice(),
+        sha256: metadata.sha256,
       });
       await reference.update({ status: "ready" });
       return metadata;
@@ -230,5 +245,37 @@ export class FirestoreReportArtifactStore implements ReportArtifactStore {
       return null;
     }
     return publicMetadata(document);
+  }
+
+  async read(
+    scope: ReportingScope,
+    artifactId: string,
+  ): Promise<ReportArtifactContent | null> {
+    assertReportingScope(scope);
+    if (!/^[a-f0-9]{64}$/.test(artifactId)) return null;
+    const snapshot = await this.collection(scope).doc(artifactId).get();
+    if (!snapshot.exists) return null;
+    const document = snapshot.data() as StoredArtifactDocument;
+    if (
+      document.status !== "ready" ||
+      document.tenantId !== scope.tenantId ||
+      document.workspaceId !== scope.workspaceId ||
+      document.artifactId !== artifactId ||
+      Date.parse(document.expiresAt) <= this.now()
+    ) {
+      return null;
+    }
+    const bytes = await this.objects.getObject({
+      objectKey: document.objectKey,
+      maxBytes: MAX_REPORT_BYTES,
+    });
+    if (
+      !bytes ||
+      bytes.length !== document.byteLength ||
+      hash(bytes) !== document.sha256
+    ) {
+      throw new Error("Stored report artifact failed its integrity check");
+    }
+    return { metadata: publicMetadata(document), bytes };
   }
 }

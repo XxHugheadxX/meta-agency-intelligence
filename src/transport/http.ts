@@ -61,6 +61,11 @@ import {
 } from "../store/asset-binding-repo.js";
 import { logger } from "../utils/logger.js";
 import { unsafeIpReason } from "../utils/url-guard.js";
+import {
+  createReportDownloadHandler,
+  FirestoreReportArtifactStore,
+  GcsReportObjectStore,
+} from "../agency/delivery/index.js";
 
 interface PendingAuth {
   fbUserId: string;
@@ -783,6 +788,23 @@ export async function startHttpTransport(
     !config.multiTenantEnabled,
   );
   const metaTokenMw = buildMetaTokenMiddleware(serverUrl, config.multiTenantEnabled);
+
+  const reportBucket = process.env.REPORTS_GCS_BUCKET?.trim();
+  if (reportBucket) {
+    if (!config.multiTenantEnabled || !isFirestoreEnabled()) {
+      throw new Error("Private report delivery requires multi-tenant Firestore mode");
+    }
+    const reportArtifacts = new FirestoreReportArtifactStore(
+      getFirestore(),
+      new GcsReportObjectStore(reportBucket),
+    );
+    app.get(
+      "/agency/reports/:artifactId",
+      createRateLimiter(30, 60 * 1000),
+      auth,
+      createReportDownloadHandler(reportArtifacts),
+    );
+  }
 
   app.post("/mcp", auth, metaTokenMw, async (req, res) => {
     try {

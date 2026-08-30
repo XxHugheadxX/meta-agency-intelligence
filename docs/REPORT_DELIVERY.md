@@ -24,6 +24,11 @@ OIDC del scheduler + payload firmado
 - `FirestoreReportArtifactStore` guarda metadata bajo
   `agency_tenants/{tenant}/workspaces/{workspace}/report_artifacts` y delega los
   bytes a un `ReportObjectStore` privado.
+- `GcsReportObjectStore` usa la API JSON de GCS con el token efímero de la
+  service account de Cloud Run. No necesita una clave JSON ni coloca
+  credenciales en URLs.
+- `GET /agency/reports/:artifactId` exige un Bearer token MCP válido y vuelve a
+  derivar tenant/workspace de sus claims antes de leer el artefacto.
 
 La respuesta del worker contiene únicamente ID opaco, nombre, hash, tamaño,
 periodo y caducidad. No contiene bytes del archivo, token Meta, object key ni
@@ -38,9 +43,15 @@ URL de almacenamiento.
 - Un artefacto pendiente no se entrega hasta que el objeto esté almacenado.
 - La consulta de metadata siempre requiere el mismo tenant/workspace.
 
-## Integración pendiente de infraestructura
+## Configuración de infraestructura
 
-Implementar `ReportObjectStore` con un bucket GCS privado, CMEK, Uniform Bucket
-Level Access y lifecycle. La descarga debe pasar por un endpoint autenticado
-que vuelva a comprobar tenant/rol y emita una URL firmada de vida corta. No se
-deben devolver URLs permanentes ni hacer público el bucket.
+Configurar `REPORTS_GCS_BUCKET` con un bucket GCS privado, CMEK, Uniform Bucket
+Level Access y lifecycle. La runtime service account sólo necesita
+`storage.objects.create` y `storage.objects.get` sobre ese bucket; la eliminación
+se delega al lifecycle. El endpoint entrega el archivo como proxy autenticado,
+con `Cache-Control: no-store`, por lo que no se emiten URLs firmadas ni
+permanentes y el bucket nunca debe hacerse público.
+
+El adaptador usa uploads reanudables con precondición de creación, hash SHA-256,
+host de upload fijado y redirects deshabilitados. Una respuesta GCS o Firestore
+no se devuelve directamente al cliente.

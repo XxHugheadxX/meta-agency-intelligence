@@ -115,8 +115,15 @@ describeEmulator("Firestore read-only reporting pipeline integration", () => {
       async putObject(input) {
         objects.set(input.objectKey, input.bytes.slice());
       },
+      async getObject(input) {
+        return objects.get(input.objectKey)?.slice() ?? null;
+      },
     };
-    const artifacts = new FirestoreReportArtifactStore(db, objectStore);
+    const artifacts = new FirestoreReportArtifactStore(
+      db,
+      objectStore,
+      () => Date.parse("2026-08-31T08:00:00.000Z"),
+    );
     const stored = await artifacts.store(scope, {
       jobId: "emulator-report-delivery",
       period: { kind: "week", startDate: "2026-08-24", endDate: "2026-08-30" },

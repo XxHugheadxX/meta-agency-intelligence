@@ -96,6 +96,9 @@ escritura no prevista.
 - CORS no autoriza headers de credenciales Meta.
 - Los endpoints protegidos deben tener tests de ausencia de auth, auth inválida,
   tenant ausente y origen sibling.
+- La descarga de reportes requiere Bearer auth y tenant/workspace derivados de
+  claims verificados. Un ID inválido, expirado o perteneciente a otro tenant
+  devuelve el mismo `404`; el bucket y su object key nunca se exponen.
 
 ## Logs y errores
 
