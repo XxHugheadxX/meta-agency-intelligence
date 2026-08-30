@@ -103,6 +103,33 @@ function workerHarness(
 }
 
 describe("agency reporting worker", () => {
+  it("applies admission control before resolving the backend token", async () => {
+    const admission = {
+      run: vi.fn().mockImplementation(async (
+        scope: ReportingJobPayload,
+        operation: () => Promise<typeof runtimeResult>,
+      ) => {
+        expect(scope).toBe(job);
+        expect(context.connections.resolve).not.toHaveBeenCalled();
+        return operation();
+      }),
+    };
+    const context = workerHarness(
+      { run: vi.fn().mockResolvedValue(runtimeResult) },
+      connection,
+      job,
+      { repository: new InMemoryReportingJobLeaseRepository(), admission },
+    );
+
+    await expect(context.worker.run({
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    })).resolves.toMatchObject({ jobId: job.jobId });
+    expect(admission.run).toHaveBeenCalledOnce();
+    expect(context.connections.resolve).toHaveBeenCalledOnce();
+  });
+
   it("runs secure ingestion, creates Excel, and returns only tenant-scoped metadata", async () => {
     const artifacts = new InMemoryReportArtifactStore(
       () => Date.parse("2026-08-31T08:00:00.000Z"),
@@ -295,7 +322,9 @@ describe("agency reporting worker", () => {
 
     const first = context.worker.run(envelope);
     await vi.waitFor(() => expect(runtime.run).toHaveBeenCalledTimes(1));
-    await expect(context.worker.run(envelope)).rejects.toThrow("rejected or failed");
+    await expect(context.worker.run(envelope)).rejects.toThrow(
+      "Reporting capacity is temporarily exhausted",
+    );
     finishRuntime?.(runtimeResult);
     await expect(first).resolves.toMatchObject({ jobId: job.jobId });
     expect(runtime.run).toHaveBeenCalledTimes(1);

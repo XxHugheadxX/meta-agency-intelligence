@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { assertIsoDate } from "../historical-data/index.js";
 import {
+  ReportingBackpressureError,
+  type ReportingConcurrencyGate,
+} from "../scheduler/index.js";
+import {
   type ReportingJobLeaseHandle,
   type ReportingJobLeaseRepository,
 } from "./reporting-job-lease-repository.js";
@@ -27,6 +31,7 @@ const DEFAULT_LEASE_TTL_MS = 60_000;
 export interface AgencyReportingWorkerLeaseOptions {
   readonly repository: ReportingJobLeaseRepository;
   readonly leaseTtlMs?: number;
+  readonly admission?: Pick<ReportingConcurrencyGate, "run">;
 }
 
 interface LeaseHeartbeatState {
@@ -40,6 +45,11 @@ interface LeaseHeartbeat {
 
 function requestFingerprint(payload: string): string {
   return createHash("sha256").update(payload, "utf8").digest("hex");
+}
+
+function busyRetryAfterMs(expiresAt: string): number {
+  const remaining = Date.parse(expiresAt) - Date.now();
+  return Math.min(15 * 60_000, Math.max(1_000, Number.isFinite(remaining) ? remaining : 5_000));
 }
 
 function startLeaseHeartbeat(
@@ -180,6 +190,7 @@ export class AgencyReportingWorker {
       const verified = await this.jobs.verify(envelope.payload, envelope.signature);
       job = verified as ReportingJobPayload;
       validateReportingJob(job);
+      const validatedJob = job;
 
       if (this.leaseOptions) {
         const leaseTtlMs = this.leaseOptions.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
@@ -192,7 +203,7 @@ export class AgencyReportingWorker {
           leaseTtlMs,
         );
         if (claim.status === "busy") {
-          throw new Error("Reporting job is already running");
+          throw new ReportingBackpressureError(busyRetryAfterMs(claim.expiresAt));
         }
         if (claim.status === "completed") {
           assertReplayResult(job, claim.result);
@@ -211,9 +222,14 @@ export class AgencyReportingWorker {
 
       await this.audit.record(auditEvent(job, identity, "started", this.now()));
 
-      const connection = await this.connections.resolve(job, job.accountId);
-      assertReadOnlyConnection(connection);
-      const result = await this.runtime.run(connection, job);
+      const execute = async () => {
+        const connection = await this.connections.resolve(validatedJob, validatedJob.accountId);
+        assertReadOnlyConnection(connection);
+        return this.runtime.run(connection, validatedJob);
+      };
+      const result = this.leaseOptions?.admission
+        ? await this.leaseOptions.admission.run(validatedJob, execute)
+        : await execute();
       assertRuntimeResult(job, result);
       const response: AgencyReportingWorkerResult = {
         tenantId: job.tenantId,
@@ -247,7 +263,7 @@ export class AgencyReportingWorker {
 
       await this.audit.record(auditEvent(job, identity, "succeeded", this.now()));
       return response;
-    } catch {
+    } catch (error) {
       if (this.leaseOptions && job && heartbeat) {
         try {
           const heartbeatState = await heartbeat.stop();
@@ -261,6 +277,7 @@ export class AgencyReportingWorker {
       if (identity && job) {
         await this.audit.record(auditEvent(job, identity, "failed", this.now()));
       }
+      if (error instanceof ReportingBackpressureError) throw error;
       throw new Error("Agency reporting job was rejected or failed");
     }
   }

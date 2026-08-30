@@ -43,6 +43,12 @@ tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegado
 ni se validaron GCS/IAM/CMEK en staging. Tampoco se implementó la ingesta orgánica
 de Pages/Instagram ni se validaron contratos contra una Meta test app.
 
+`src/agency/scheduler/` aporta control de concurrencia global y por workspace,
+HTTP 429 con `Retry-After`, política conservadora de reintentos y registros
+dead-letter minimizados. Autenticación, validación, señales de abuso y fallos
+desconocidos son terminales; un rate limit sólo se reintenta con una espera
+explícita. Estos controles no sustituyen la cola durable y DLQ de staging.
+
 ## Arquitectura objetivo
 
 ```text

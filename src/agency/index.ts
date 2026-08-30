@@ -7,3 +7,4 @@ export * from "./recommendations/index.js";
 export * from "./ingestion/index.js";
 export * from "./worker/index.js";
 export * from "./mvp/index.js";
+export * from "./scheduler/index.js";

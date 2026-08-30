@@ -19,6 +19,7 @@ import { resolveReportingJobRuntimeConfig } from "./reporting-job-config.js";
 import { FirestoreReportingJobLeaseRepository } from "./reporting-job-lease-repository.js";
 import type { ReportingJobEndpointDependencies } from "./reporting-job-http-handler.js";
 import { AgencyReportingWorker } from "./reporting-worker.js";
+import { ReportingConcurrencyGate } from "../scheduler/index.js";
 
 export interface ReportingJobBootstrapDependencies {
   readonly getDb: () => Firestore;
@@ -63,6 +64,7 @@ export function createReportingJobEndpointDependencies(
     {
       repository: new FirestoreReportingJobLeaseRepository(db),
       leaseTtlMs: config.leaseTtlMs,
+      admission: new ReportingConcurrencyGate(),
     },
   );
   return { worker, identities };

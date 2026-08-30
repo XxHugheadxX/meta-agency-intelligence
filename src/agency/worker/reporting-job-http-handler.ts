@@ -6,6 +6,7 @@ import express, {
 import type { AgencyReportingWorker } from "./reporting-worker.js";
 import type { IngestionJobEnvelope, WorkloadIdentityVerifier } from "./types.js";
 import { assertSchedulerIdentity } from "./worker.js";
+import { ReportingBackpressureError } from "../scheduler/index.js";
 
 const MAX_AUTHORIZATION_BYTES = 16 * 1024;
 const MAX_PAYLOAD_BYTES = 16 * 1024;
@@ -66,6 +67,15 @@ function invalidRequest(response: { status(code: number): { json(body: unknown):
   response.status(400).json({ error: "Invalid reporting job request" });
 }
 
+function capacityExhausted(
+  response: { status(code: number): { json(body: unknown): unknown }; setHeader(name: string, value: string): unknown },
+  retryAfterMs: number,
+): void {
+  setNoStore(response);
+  response.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1_000))));
+  response.status(429).json({ error: "Reporting capacity is temporarily exhausted" });
+}
+
 function authenticateReportingJobRequest(
   identities: WorkloadIdentityVerifier,
 ): RequestHandler {
@@ -100,8 +110,12 @@ function executeReportingJob(worker: ReportingJobWorker): RequestHandler {
         jobId: result.jobId,
         artifactId: result.artifact.artifactId,
       });
-    } catch {
-      invalidRequest(response);
+    } catch (error) {
+      if (error instanceof ReportingBackpressureError) {
+        capacityExhausted(response, error.retryAfterMs);
+      } else {
+        invalidRequest(response);
+      }
     }
   };
 }

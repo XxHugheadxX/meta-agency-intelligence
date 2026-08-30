@@ -121,9 +121,11 @@ del scheduler ligado a issuer, audience y service account. El endpoint interno
 de jobs está implementado como una dependencia opt-in, autenticada antes del
 parseo y con respuesta mínima. El bootstrap seguro ya compone el worker con
 repositorios Firestore del control plane y leases con fencing y replay
-idempotente. Faltan aprovisionar y validar bucket/IAM/CMEK e identidad reales,
-y añadir cola, límites de concurrencia, reintentos con jitter y dead-letter
-queue.
+idempotente. La admisión local ya limita concurrencia global/por workspace y
+devuelve `Retry-After`; también existen políticas fail-closed de retry y records
+dead-letter sin payload, firma o autorización. Faltan aprovisionar y validar
+bucket/IAM/CMEK e identidad reales, y conectar una cola durable con persistencia
+DLQ y reanudación operativa.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.

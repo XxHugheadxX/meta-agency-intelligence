@@ -1,6 +1,7 @@
 import express from "express";
 import { describe, expect, it, vi } from "vitest";
 import { createReportingJobHttpRouter } from "../../src/agency/worker/reporting-job-http-handler.js";
+import { ReportingBackpressureError } from "../../src/agency/scheduler/index.js";
 import type { AgencyReportingWorkerResult } from "../../src/agency/worker/types.js";
 import { tenantA } from "./fixtures.js";
 
@@ -122,6 +123,23 @@ describe("reporting job HTTP handler", () => {
 
     expect(JSON.stringify(responseBody)).not.toContain("Meta token");
     expect(JSON.stringify(responseBody)).not.toContain("objectKey");
+  });
+
+  it("returns bounded retry guidance when reporting capacity is exhausted", async () => {
+    const identities = verifiedIdentity();
+    const worker = { run: vi.fn().mockRejectedValue(new ReportingBackpressureError(7_500)) };
+    await withRouter(worker, identities, async (url) => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: "Bearer scheduler-oidc", "Content-Type": "application/json" },
+        body: JSON.stringify({ payload: "{}", signature: "valid_signature" }),
+      });
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("8");
+      await expect(response.json()).resolves.toEqual({
+        error: "Reporting capacity is temporarily exhausted",
+      });
+    });
   });
 
   it("authenticates before JSON parsing in the router", async () => {
