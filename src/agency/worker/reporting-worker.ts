@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto";
 import { assertIsoDate } from "../historical-data/index.js";
+import {
+  type ReportingJobLeaseHandle,
+  type ReportingJobLeaseRepository,
+} from "./reporting-job-lease-repository.js";
 import type {
   AgencyReportingWorkerResult,
   IngestionAuditSink,
@@ -16,6 +21,65 @@ import {
   assertSchedulerIdentity,
   validateIngestionJob,
 } from "./worker.js";
+
+const DEFAULT_LEASE_TTL_MS = 60_000;
+
+export interface AgencyReportingWorkerLeaseOptions {
+  readonly repository: ReportingJobLeaseRepository;
+  readonly leaseTtlMs?: number;
+}
+
+interface LeaseHeartbeatState {
+  readonly handle: ReportingJobLeaseHandle;
+  readonly lost: boolean;
+}
+
+interface LeaseHeartbeat {
+  stop(): Promise<LeaseHeartbeatState>;
+}
+
+function requestFingerprint(payload: string): string {
+  return createHash("sha256").update(payload, "utf8").digest("hex");
+}
+
+function startLeaseHeartbeat(
+  repository: ReportingJobLeaseRepository,
+  job: ReportingJobPayload,
+  initialHandle: ReportingJobLeaseHandle,
+  leaseTtlMs: number,
+): LeaseHeartbeat {
+  let handle = initialHandle;
+  let lost = false;
+  let stopped = false;
+  let pending = Promise.resolve();
+  const intervalMs = Math.max(250, Math.floor(leaseTtlMs / 3));
+  const timer = setInterval(() => {
+    if (stopped || lost) return;
+    pending = pending.then(async () => {
+      if (stopped || lost) return;
+      try {
+        const renewed = await repository.renew(job, job.jobId, handle, leaseTtlMs);
+        if (!renewed) {
+          lost = true;
+          return;
+        }
+        handle = renewed;
+      } catch {
+        lost = true;
+      }
+    });
+  }, intervalMs);
+  timer.unref();
+
+  return {
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await pending;
+      return { handle, lost };
+    },
+  };
+}
 
 function validateReportingJob(job: ReportingJobPayload): void {
   validateIngestionJob(job);
@@ -75,6 +139,24 @@ function assertRuntimeResult(job: ReportingJobPayload, result: ReportingRuntimeR
   }
 }
 
+function assertReplayResult(job: ReportingJobPayload, result: AgencyReportingWorkerResult): void {
+  if (
+    result.tenantId !== job.tenantId ||
+    result.workspaceId !== job.workspaceId ||
+    result.jobId !== job.jobId ||
+    result.accountId !== job.accountId ||
+    result.runId !== job.jobId ||
+    result.artifact.tenantId !== job.tenantId ||
+    result.artifact.workspaceId !== job.workspaceId ||
+    result.artifact.jobId !== job.jobId ||
+    result.artifact.period.kind !== job.reportKind ||
+    result.artifact.period.startDate !== job.reportStartDate ||
+    result.artifact.period.endDate !== job.reportEndDate
+  ) {
+    throw new Error("Reporting lease returned a mismatched tenant-scoped result");
+  }
+}
+
 export class AgencyReportingWorker {
   constructor(
     private readonly identities: WorkloadIdentityVerifier,
@@ -83,17 +165,50 @@ export class AgencyReportingWorker {
     private readonly runtime: ReportingRuntime,
     private readonly audit: IngestionAuditSink,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly leaseOptions?: AgencyReportingWorkerLeaseOptions,
   ) {}
 
   async run(envelope: IngestionJobEnvelope): Promise<AgencyReportingWorkerResult> {
     let identity: VerifiedWorkloadIdentity | undefined;
     let job: ReportingJobPayload | undefined;
+    let heartbeat: LeaseHeartbeat | undefined;
+    let leaseHandle: ReportingJobLeaseHandle | undefined;
+    let fingerprint: string | undefined;
     try {
       identity = await this.identities.verify(envelope.authorization);
       assertSchedulerIdentity(identity);
       const verified = await this.jobs.verify(envelope.payload, envelope.signature);
       job = verified as ReportingJobPayload;
       validateReportingJob(job);
+
+      if (this.leaseOptions) {
+        const leaseTtlMs = this.leaseOptions.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+        fingerprint = requestFingerprint(envelope.payload);
+        const claim = await this.leaseOptions.repository.claim(
+          job,
+          job.jobId,
+          fingerprint,
+          identity.subject,
+          leaseTtlMs,
+        );
+        if (claim.status === "busy") {
+          throw new Error("Reporting job is already running");
+        }
+        if (claim.status === "completed") {
+          assertReplayResult(job, claim.result);
+          await this.audit.record(auditEvent(job, identity, "started", this.now()));
+          await this.audit.record(auditEvent(job, identity, "succeeded", this.now()));
+          return claim.result;
+        }
+        leaseHandle = claim.handle;
+        heartbeat = startLeaseHeartbeat(
+          this.leaseOptions.repository,
+          job,
+          leaseHandle,
+          leaseTtlMs,
+        );
+      }
+
       await this.audit.record(auditEvent(job, identity, "started", this.now()));
 
       const connection = await this.connections.resolve(job, job.accountId);
@@ -111,9 +226,38 @@ export class AgencyReportingWorker {
         runId: result.ingestion.runId,
         artifact: result.artifact,
       };
+
+      if (this.leaseOptions && heartbeat && leaseHandle && fingerprint) {
+        const heartbeatState = await heartbeat.stop();
+        heartbeat = undefined;
+        leaseHandle = heartbeatState.handle;
+        if (
+          heartbeatState.lost ||
+          !await this.leaseOptions.repository.complete(
+            job,
+            job.jobId,
+            fingerprint,
+            leaseHandle,
+            response,
+          )
+        ) {
+          throw new Error("Reporting job lease was lost before completion");
+        }
+      }
+
       await this.audit.record(auditEvent(job, identity, "succeeded", this.now()));
       return response;
     } catch {
+      if (this.leaseOptions && job && heartbeat) {
+        try {
+          const heartbeatState = await heartbeat.stop();
+          if (!heartbeatState.lost) {
+            await this.leaseOptions.repository.release(job, job.jobId, heartbeatState.handle);
+          }
+        } catch {
+          // The original failure remains authoritative and is sanitized below.
+        }
+      }
       if (identity && job) {
         await this.audit.record(auditEvent(job, identity, "failed", this.now()));
       }

@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { getAccessToken } from "../../src/auth/token-store.js";
 import {
   AgencyReportingWorker,
+  InMemoryReportingJobLeaseRepository,
   InMemoryHistoricalDataRepository,
   InMemoryIngestionCheckpointRepository,
   InMemoryReportArtifactStore,
   MetaAgencyReportingRuntime,
+  type AgencyReportingWorkerLeaseOptions,
   type IngestionAuditEvent,
   type ReadOnlyMetaClient,
   type ReportingJobPayload,
+  type ReportingRuntime,
   type ResolvedIngestionConnection,
 } from "../../src/agency/index.js";
 import { tenantA, tenantB } from "./fixtures.js";
@@ -41,10 +44,42 @@ const connection: ResolvedIngestionConnection = {
   allowedAccountIds: ["act_100"],
 };
 
+const runtimeResult = {
+  ingestion: {
+    scope: tenantA,
+    accountId: job.accountId,
+    requestedStartDate: job.startDate,
+    effectiveStartDate: job.startDate,
+    endDate: job.endDate,
+    mode: "incremental" as const,
+    rowsWritten: 1,
+    pagesRead: 1,
+    watermarkDate: job.endDate,
+    runId: job.jobId,
+  },
+  artifact: {
+    ...tenantA,
+    artifactId: "a".repeat(64),
+    jobId: job.jobId,
+    period: {
+      kind: job.reportKind,
+      startDate: job.reportStartDate,
+      endDate: job.reportEndDate,
+    },
+    filename: "report.xlsx",
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    byteLength: 4,
+    sha256: "b".repeat(64),
+    createdAt: "2026-08-31T08:00:00.000Z",
+    expiresAt: "2026-09-30T08:00:00.000Z",
+  },
+};
+
 function workerHarness(
-  runtime: MetaAgencyReportingRuntime,
+  runtime: ReportingRuntime,
   resolved: ResolvedIngestionConnection = connection,
   verifiedJob: ReportingJobPayload = job,
+  leaseOptions?: AgencyReportingWorkerLeaseOptions,
 ) {
   const events: IngestionAuditEvent[] = [];
   const connections = { resolve: vi.fn().mockResolvedValue(resolved) };
@@ -62,6 +97,7 @@ function workerHarness(
     runtime,
     { async record(event) { events.push(structuredClone(event)); } },
     () => "2026-08-31T08:00:00.000Z",
+    leaseOptions,
   );
   return { worker, connections, events };
 }
@@ -216,5 +252,104 @@ describe("agency reporting worker", () => {
       outcome: "failed",
       code: "REPORTING_REJECTED",
     });
+  });
+
+  it("replays a completed tenant-scoped job without calling Meta twice", async () => {
+    const runtime = { run: vi.fn().mockResolvedValue(runtimeResult) };
+    const leases = new InMemoryReportingJobLeaseRepository();
+    const context = workerHarness(runtime, connection, job, { repository: leases });
+    const envelope = {
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    };
+
+    const first = await context.worker.run(envelope);
+    const replay = await context.worker.run(envelope);
+
+    expect(replay).toEqual(first);
+    expect(runtime.run).toHaveBeenCalledTimes(1);
+    expect(context.connections.resolve).toHaveBeenCalledTimes(1);
+    expect(context.events.map((event) => event.outcome)).toEqual([
+      "started",
+      "succeeded",
+      "started",
+      "succeeded",
+    ]);
+  });
+
+  it("rejects a concurrent duplicate while the first job owns the lease", async () => {
+    let finishRuntime: ((value: typeof runtimeResult) => void) | undefined;
+    const runtime = {
+      run: vi.fn().mockImplementation(() => new Promise<typeof runtimeResult>((resolve) => {
+        finishRuntime = resolve;
+      })),
+    };
+    const leases = new InMemoryReportingJobLeaseRepository();
+    const context = workerHarness(runtime, connection, job, { repository: leases });
+    const envelope = {
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    };
+
+    const first = context.worker.run(envelope);
+    await vi.waitFor(() => expect(runtime.run).toHaveBeenCalledTimes(1));
+    await expect(context.worker.run(envelope)).rejects.toThrow("rejected or failed");
+    finishRuntime?.(runtimeResult);
+    await expect(first).resolves.toMatchObject({ jobId: job.jobId });
+    expect(runtime.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lease after failure so a scheduler retry can succeed", async () => {
+    const runtime = {
+      run: vi.fn()
+        .mockRejectedValueOnce(new Error("synthetic runtime failure"))
+        .mockResolvedValueOnce(runtimeResult),
+    };
+    const leases = new InMemoryReportingJobLeaseRepository();
+    const context = workerHarness(runtime, connection, job, { repository: leases });
+    const envelope = {
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    };
+
+    await expect(context.worker.run(envelope)).rejects.toThrow("rejected or failed");
+    await expect(context.worker.run(envelope)).resolves.toMatchObject({ jobId: job.jobId });
+    expect(runtime.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("renews the lease while a report is still running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-31T08:00:00.000Z"));
+    try {
+      let finishRuntime: ((value: typeof runtimeResult) => void) | undefined;
+      const runtime = {
+        run: vi.fn().mockImplementation(() => new Promise<typeof runtimeResult>((resolve) => {
+          finishRuntime = resolve;
+        })),
+      };
+      const leases = new InMemoryReportingJobLeaseRepository(() => new Date(Date.now()));
+      const renew = vi.spyOn(leases, "renew");
+      const context = workerHarness(runtime, connection, job, {
+        repository: leases,
+        leaseTtlMs: 1_000,
+      });
+
+      const pending = context.worker.run({
+        authorization: "Bearer synthetic-oidc",
+        payload: "signed-payload",
+        signature: "signed-signature",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.run).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(renew).toHaveBeenCalled();
+      finishRuntime?.(runtimeResult);
+      await expect(pending).resolves.toMatchObject({ jobId: job.jobId });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

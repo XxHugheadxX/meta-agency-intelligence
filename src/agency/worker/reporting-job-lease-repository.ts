@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Firestore } from "@google-cloud/firestore";
 import type { ReportingScope } from "../historical-data/index.js";
+import type { AgencyReportingWorkerResult } from "./types.js";
 
 const COLLECTION = "agency_reporting_job_leases";
 const MIN_LEASE_TTL_MS = 1_000;
@@ -8,13 +9,7 @@ const MAX_LEASE_TTL_MS = 15 * 60 * 1_000;
 const COMPLETED_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_IDENTIFIER_LENGTH = 128;
 
-export interface ReportingJobReplayResult {
-  readonly artifactId: string;
-  readonly runId: string;
-  readonly rowsWritten: number;
-  readonly pagesRead: number;
-  readonly watermarkDate: string;
-}
+export type ReportingJobReplayResult = AgencyReportingWorkerResult;
 
 export interface ReportingJobLeaseHandle {
   readonly leaseId: string;
@@ -96,23 +91,119 @@ function assertIsoDate(value: unknown, field: string): asserts value is string {
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error(`${field} must be an ISO calendar date`);
 }
 
+function assertIsoInstant(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string") throw new Error(`${field} must be an ISO instant`);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new Error(`${field} must be an ISO instant`);
+  }
+}
+
+function assertSha256(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`${field} must be a lowercase SHA-256 hex digest`);
+  }
+}
+
 function assertPublicResult(value: unknown): asserts value is ReportingJobReplayResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Reporting job replay result must be an object");
   const result = value as Record<string, unknown>;
   const keys = Object.keys(result).sort();
-  const expected = ["artifactId", "pagesRead", "rowsWritten", "runId", "watermarkDate"];
+  const expected = ["accountId", "artifact", "jobId", "pagesRead", "rowsWritten", "runId", "tenantId", "watermarkDate", "workspaceId"];
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) throw new Error("Reporting job replay result contains unsupported fields");
-  assertIdentifier(result.artifactId, "result.artifactId");
+  assertIdentifier(result.tenantId, "result.tenantId");
+  assertIdentifier(result.workspaceId, "result.workspaceId");
+  assertIdentifier(result.jobId, "result.jobId");
+  assertIdentifier(result.accountId, "result.accountId");
   assertIdentifier(result.runId, "result.runId");
   if (typeof result.rowsWritten !== "number" || !Number.isSafeInteger(result.rowsWritten) || result.rowsWritten < 0) throw new Error("result.rowsWritten must be a non-negative safe integer");
   if (typeof result.pagesRead !== "number" || !Number.isSafeInteger(result.pagesRead) || result.pagesRead < 0) throw new Error("result.pagesRead must be a non-negative safe integer");
   assertIsoDate(result.watermarkDate, "result.watermarkDate");
+
+  if (!result.artifact || typeof result.artifact !== "object" || Array.isArray(result.artifact)) {
+    throw new Error("result.artifact must be an object");
+  }
+  const artifact = result.artifact as Record<string, unknown>;
+  const artifactKeys = Object.keys(artifact).sort();
+  const expectedArtifactKeys = ["artifactId", "byteLength", "contentType", "createdAt", "expiresAt", "filename", "jobId", "period", "sha256", "tenantId", "workspaceId"];
+  if (artifactKeys.length !== expectedArtifactKeys.length || artifactKeys.some((key, index) => key !== expectedArtifactKeys[index])) {
+    throw new Error("Reporting job artifact contains unsupported fields");
+  }
+  assertIdentifier(artifact.tenantId, "result.artifact.tenantId");
+  assertIdentifier(artifact.workspaceId, "result.artifact.workspaceId");
+  assertIdentifier(artifact.jobId, "result.artifact.jobId");
+  assertSha256(artifact.artifactId, "result.artifact.artifactId");
+  assertSha256(artifact.sha256, "result.artifact.sha256");
+  assertIdentifier(artifact.filename, "result.artifact.filename");
+  if (artifact.contentType !== "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+    throw new Error("result.artifact.contentType must be the supported Excel MIME type");
+  }
+  if (typeof artifact.byteLength !== "number" || !Number.isSafeInteger(artifact.byteLength) || artifact.byteLength < 1) {
+    throw new Error("result.artifact.byteLength must be a positive safe integer");
+  }
+  assertIsoInstant(artifact.createdAt, "result.artifact.createdAt");
+  assertIsoInstant(artifact.expiresAt, "result.artifact.expiresAt");
+  if (!artifact.period || typeof artifact.period !== "object" || Array.isArray(artifact.period)) {
+    throw new Error("result.artifact.period must be an object");
+  }
+  const period = artifact.period as Record<string, unknown>;
+  if (!hasExactKeys(period, ["endDate", "kind", "startDate"])) {
+    throw new Error("result.artifact.period contains unsupported fields");
+  }
+  if (period.kind !== "week" && period.kind !== "month") throw new Error("result.artifact.period.kind is invalid");
+  assertIsoDate(period.startDate, "result.artifact.period.startDate");
+  assertIsoDate(period.endDate, "result.artifact.period.endDate");
+  if (
+    result.tenantId !== artifact.tenantId ||
+    result.workspaceId !== artifact.workspaceId ||
+    result.jobId !== artifact.jobId ||
+    result.runId !== result.jobId ||
+    period.startDate > period.endDate
+  ) {
+    throw new Error("Reporting job replay result contains mismatched tenant-scoped metadata");
+  }
 }
 
-function cloneResult(result: ReportingJobReplayResult): ReportingJobReplayResult { return { ...result }; }
+function cloneResult(result: ReportingJobReplayResult): ReportingJobReplayResult {
+  return { ...result, artifact: { ...result.artifact, period: { ...result.artifact.period } } };
+}
 
 function sameResult(left: ReportingJobReplayResult, right: ReportingJobReplayResult): boolean {
-  return left.artifactId === right.artifactId && left.runId === right.runId && left.rowsWritten === right.rowsWritten && left.pagesRead === right.pagesRead && left.watermarkDate === right.watermarkDate;
+  return left.tenantId === right.tenantId &&
+    left.workspaceId === right.workspaceId &&
+    left.jobId === right.jobId &&
+    left.accountId === right.accountId &&
+    left.runId === right.runId &&
+    left.rowsWritten === right.rowsWritten &&
+    left.pagesRead === right.pagesRead &&
+    left.watermarkDate === right.watermarkDate &&
+    left.artifact.tenantId === right.artifact.tenantId &&
+    left.artifact.workspaceId === right.artifact.workspaceId &&
+    left.artifact.artifactId === right.artifact.artifactId &&
+    left.artifact.jobId === right.artifact.jobId &&
+    left.artifact.period.kind === right.artifact.period.kind &&
+    left.artifact.period.startDate === right.artifact.period.startDate &&
+    left.artifact.period.endDate === right.artifact.period.endDate &&
+    left.artifact.filename === right.artifact.filename &&
+    left.artifact.contentType === right.artifact.contentType &&
+    left.artifact.byteLength === right.artifact.byteLength &&
+    left.artifact.sha256 === right.artifact.sha256 &&
+    left.artifact.createdAt === right.artifact.createdAt &&
+    left.artifact.expiresAt === right.artifact.expiresAt;
+}
+
+function assertResultScope(
+  scope: ReportingScope,
+  jobId: string,
+  result: ReportingJobReplayResult,
+): void {
+  if (
+    result.tenantId !== scope.tenantId ||
+    result.workspaceId !== scope.workspaceId ||
+    result.jobId !== jobId
+  ) {
+    throw new Error("Reporting job replay result does not match its tenant-scoped lease");
+  }
 }
 
 function toStoredDate(value: unknown, field: string): Date {
@@ -130,7 +221,7 @@ function assertHandle(handle: ReportingJobLeaseHandle): void {
   if (!handle || typeof handle !== "object") throw new Error("A lease handle is required");
   assertLeaseId(handle.leaseId, "leaseId");
   assertFence(handle.fence, "fence");
-  if (typeof handle.expiresAt !== "string" || Number.isNaN(Date.parse(handle.expiresAt))) throw new Error("expiresAt must be an ISO instant");
+  assertIsoInstant(handle.expiresAt, "expiresAt");
 }
 
 function recordKey(scope: ReportingScope, jobId: string): string { return JSON.stringify([scope.tenantId, scope.workspaceId, jobId]); }
@@ -209,7 +300,7 @@ export class InMemoryReportingJobLeaseRepository implements ReportingJobLeaseRep
   }
 
   async complete(scope: ReportingScope, jobId: string, fingerprint: string, handle: ReportingJobLeaseHandle, result: ReportingJobReplayResult): Promise<boolean> {
-    assertScope(scope); assertIdentifier(jobId, "jobId"); assertFingerprint(fingerprint); assertHandle(handle); assertPublicResult(result);
+    assertScope(scope); assertIdentifier(jobId, "jobId"); assertFingerprint(fingerprint); assertHandle(handle); assertPublicResult(result); assertResultScope(scope, jobId, result);
     const key = recordKey(scope, jobId); const existing = this.records.get(key);
     if (!existing || existing.requestFingerprint !== fingerprint) return false;
     if (existing.status === "completed") return existing.completedLeaseId === handle.leaseId && existing.completedFence === handle.fence && sameResult(existing.result, result);
@@ -253,7 +344,7 @@ export class FirestoreReportingJobLeaseRepository implements ReportingJobLeaseRe
   }
 
   async complete(scope: ReportingScope, jobId: string, fingerprint: string, handle: ReportingJobLeaseHandle, result: ReportingJobReplayResult): Promise<boolean> {
-    assertScope(scope); assertIdentifier(jobId, "jobId"); assertFingerprint(fingerprint); assertHandle(handle); assertPublicResult(result); const reference = this.collection(scope).doc(jobId);
+    assertScope(scope); assertIdentifier(jobId, "jobId"); assertFingerprint(fingerprint); assertHandle(handle); assertPublicResult(result); assertResultScope(scope, jobId, result); const reference = this.collection(scope).doc(jobId);
     return this.db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(reference); if (!snapshot.exists) return false;
       const existing = readRecord(scope, jobId, snapshot.data()); if (existing.requestFingerprint !== fingerprint) return false;

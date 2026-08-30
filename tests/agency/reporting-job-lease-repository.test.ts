@@ -10,7 +10,25 @@ import { tenantA, tenantB } from "./fixtures.js";
 const fingerprint = "a".repeat(64);
 const otherFingerprint = "b".repeat(64);
 const result: ReportingJobReplayResult = {
-  artifactId: "c".repeat(64), runId: "week-2026-08-24", rowsWritten: 24, pagesRead: 3, watermarkDate: "2026-08-30",
+  ...tenantA,
+  jobId: "weekly-job",
+  accountId: "act_100",
+  runId: "weekly-job",
+  rowsWritten: 24,
+  pagesRead: 3,
+  watermarkDate: "2026-08-30",
+  artifact: {
+    ...tenantA,
+    artifactId: "c".repeat(64),
+    jobId: "weekly-job",
+    period: { kind: "week", startDate: "2026-08-24", endDate: "2026-08-30" },
+    filename: "report.xlsx",
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    byteLength: 1024,
+    sha256: "d".repeat(64),
+    createdAt: "2026-08-31T08:00:00.000Z",
+    expiresAt: "2026-09-07T08:00:00.000Z",
+  },
 };
 
 function clock(initial = "2026-08-31T08:00:00.000Z") {
@@ -67,6 +85,20 @@ describe("reporting job lease repository", () => {
     await expect(repository.complete(tenantA, "weekly-job", fingerprint, handle, result)).resolves.toBe(true);
     await expect(repository.claim(tenantA, "weekly-job", fingerprint, "worker-b", 60_000)).resolves.toEqual({ status: "completed", result });
     await expect(repository.claim(tenantA, "weekly-job", otherFingerprint, "worker-b", 60_000)).rejects.toThrow("fingerprint");
+  });
+
+  it("rejects completion metadata from another tenant", async () => {
+    const repository = new InMemoryReportingJobLeaseRepository(clock().now);
+    const handle = await acquired(repository);
+    const mismatched = {
+      ...result,
+      ...tenantB,
+      artifact: { ...result.artifact, ...tenantB },
+    };
+
+    await expect(
+      repository.complete(tenantA, "weekly-job", fingerprint, handle, mismatched),
+    ).rejects.toThrow("tenant-scoped lease");
   });
 
   it("rejects collision-prone and control-character identifiers", async () => {
