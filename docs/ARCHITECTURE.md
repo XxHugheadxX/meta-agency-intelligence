@@ -36,10 +36,12 @@ y Firestore; las pruebas usan exclusivamente respuestas sintéticas.
 `src/agency/worker/` contiene la orquestación inicial del worker: exige una
 identidad de workload verificada, valida un payload firmado con clave pública,
 resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
-ejecuta Ads Insights dentro de un contexto backend GET-only. Todavía no existe
-un endpoint OIDC ni un scheduler desplegado, y los repositorios operativos del
-control plane siguen pendientes. Tampoco se implementó la ingesta orgánica de
-Pages/Instagram ni se validaron contratos contra una Meta test app.
+ejecuta Ads Insights dentro de un contexto backend GET-only. El endpoint interno
+opt-in autentica Google OIDC antes de parsear el payload firmado; el bootstrap
+compone control plane, tokens cifrados, histórico, artefactos, auditoría y leases
+tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
+ni se validaron GCS/IAM/CMEK en staging. Tampoco se implementó la ingesta orgánica
+de Pages/Instagram ni se validaron contratos contra una Meta test app.
 
 ## Arquitectura objetivo
 

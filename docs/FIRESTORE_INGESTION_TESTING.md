@@ -11,6 +11,11 @@ checkpoints sin usar credenciales, proyectos ni cuentas Meta reales. Cubre:
 - checkpoints monotónicos bajo escrituras concurrentes;
 - rechazo de documentos cuya identidad no coincide con su ruta.
 - generación del XLSX desde histórico y checkpoints respaldados por Firestore.
+- leases concurrentes con fencing, takeover y replay idempotente.
+- flujo HTTP firmado completo hasta el artefacto XLSX tenant-scoped.
+
+La línea base validada localmente es Firestore Emulator 1.22.0 sobre Java 25:
+cuatro archivos de integración y ocho tests aprobados.
 
 La suite queda omitida durante los tests unitarios normales si
 `FIRESTORE_EMULATOR_HOST` no apunta explícitamente a `localhost` o
