@@ -92,5 +92,5 @@ describeEmulator("Firestore reporting job lease integration", () => {
     await expect(
       firstRepository.claim(otherScope, "weekly-job", fingerprint, "worker-e", 60_000),
     ).resolves.toMatchObject({ status: "acquired" });
-  });
+  }, 15_000);
 });

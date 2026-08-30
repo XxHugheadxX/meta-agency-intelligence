@@ -86,7 +86,10 @@ export class RepositoryIngestionConnectionResolver implements IngestionConnectio
     }
 
     return {
-      scope: { ...scope },
+      scope: {
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+      },
       account: {
         accountId: account.accountId,
         accountName: account.accountName,

@@ -20,7 +20,9 @@ try {
   $env:FIRESTORE_PROJECT_ID = "meta-agency-emulator"
   & $vitest run `
     tests/agency/firestore-ingestion.integration.test.ts `
+    tests/agency/firestore-reporting-job-lease.integration.test.ts `
     tests/agency/firestore-reporting-pipeline.integration.test.ts `
+    tests/agency/reporting-job-e2e.integration.test.ts `
     --pool=threads --maxWorkers=1
   if ($LASTEXITCODE -ne 0) {
     throw "Firestore emulator integration tests failed with exit code $LASTEXITCODE"

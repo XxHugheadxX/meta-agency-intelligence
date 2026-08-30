@@ -206,11 +206,14 @@ describe("agency ingestion worker", () => {
       tokens,
     );
 
-    await expect(resolver.resolve(tenantA, "act_100")).resolves.toMatchObject({
-      scope: tenantA,
+    const overbroadScope = { ...tenantA, jobId: "must-not-propagate" };
+    const resolved = await resolver.resolve(overbroadScope, "act_100");
+    expect(resolved).toMatchObject({
+      scope: { tenantId: tenantA.tenantId, workspaceId: tenantA.workspaceId },
       account: { accountId: "act_100" },
       scopes: ["ads_read"],
     });
+    expect(resolved.scope).toEqual(tenantA);
     await expect(resolver.resolve(tenantB, "act_100")).rejects.toThrow("Workspace");
     expect(resolveToken).toHaveBeenCalledTimes(1);
   });
