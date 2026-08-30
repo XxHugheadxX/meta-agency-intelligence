@@ -10,6 +10,7 @@ checkpoints sin usar credenciales, proyectos ni cuentas Meta reales. Cubre:
 - aislamiento por tenant/workspace;
 - checkpoints monotónicos bajo escrituras concurrentes;
 - rechazo de documentos cuya identidad no coincide con su ruta.
+- generación del XLSX desde histórico y checkpoints respaldados por Firestore.
 
 La suite queda omitida durante los tests unitarios normales si
 `FIRESTORE_EMULATOR_HOST` no apunta explícitamente a `localhost` o
