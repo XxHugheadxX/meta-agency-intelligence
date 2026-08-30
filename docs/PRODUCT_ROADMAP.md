@@ -113,9 +113,10 @@ negocio usando fixtures.
 `feature/agency-ingestion-worker`, con identidad y firma como dependencias
 obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
 La rama MVP añade el worker de reporting, metadata Firestore aislada, adaptador
-GCS con identidad de workload y endpoint de descarga autenticado tenant-scoped.
-Faltan aprovisionar y validar el bucket/IAM/CMEK reales, la verificación OIDC del
-scheduler, repositorios Firestore del control plane, cola, leases, reintentos y
+GCS, endpoint de descarga autenticado tenant-scoped y verificador Google OIDC
+del scheduler ligado a issuer, audience y service account. Faltan aprovisionar
+y validar bucket/IAM/CMEK e identidad reales, montar el endpoint interno de
+jobs, repositorios Firestore del control plane, cola, leases, reintentos y
 dead-letter queue.
 
 - Scheduler con identidad de workload y tenant firmado.

@@ -6,3 +6,4 @@ export * from "./worker.js";
 export * from "./reporting-runtime.js";
 export * from "./firestore-reporting-runtime.js";
 export * from "./reporting-worker.js";
+export * from "./google-oidc-verifier.js";

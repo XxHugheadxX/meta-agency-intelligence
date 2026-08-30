@@ -30,6 +30,9 @@
   modo.
 - Los schedulers futuros deben usar identidad de workload y jobs firmados con
   tenant inmutable, no credenciales humanas compartidas.
+- La identidad Google OIDC del scheduler debe validar `RS256`, issuer, audience,
+  email verificado y service account allowlisted; el rol `scheduler` no puede
+  derivarse de claims arbitrarios enviados por el cliente.
 
 ## Tokens Meta
 
