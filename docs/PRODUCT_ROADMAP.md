@@ -114,9 +114,11 @@ negocio usando fixtures.
 obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
 La rama MVP añade el worker de reporting, metadata Firestore aislada, adaptador
 GCS, endpoint de descarga autenticado tenant-scoped y verificador Google OIDC
-del scheduler ligado a issuer, audience y service account. Faltan aprovisionar
-y validar bucket/IAM/CMEK e identidad reales, montar el endpoint interno de
-jobs, repositorios Firestore del control plane, cola, leases, reintentos y
+del scheduler ligado a issuer, audience y service account. El endpoint interno
+de jobs está implementado como una dependencia opt-in, autenticada antes del
+parseo y con respuesta mínima. Faltan aprovisionar y validar bucket/IAM/CMEK e
+identidad reales, componer el worker con repositorios Firestore del control
+plane al arrancar, y añadir cola, leases, reintentos y
 dead-letter queue.
 
 - Scheduler con identidad de workload y tenant firmado.

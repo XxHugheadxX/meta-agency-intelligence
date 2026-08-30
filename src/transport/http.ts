@@ -66,6 +66,10 @@ import {
   FirestoreReportArtifactStore,
   GcsReportObjectStore,
 } from "../agency/delivery/index.js";
+import {
+  createReportingJobHttpRouter,
+  type ReportingJobEndpointDependencies,
+} from "../agency/worker/index.js";
 
 interface PendingAuth {
   fbUserId: string;
@@ -507,6 +511,7 @@ export function buildMetaTokenMiddleware(
 export async function startHttpTransport(
   createServer: () => McpServer,
   port: number,
+  options: { readonly reportingJobs?: ReportingJobEndpointDependencies } = {},
 ): Promise<void> {
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
@@ -540,7 +545,6 @@ export async function startHttpTransport(
   );
   logger.info({ corsAllowedOrigins }, "CORS allowlist configured");
   app.use(cookieParser());
-  app.use(express.json({ limit: "10mb" }));
 
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -561,6 +565,19 @@ export async function startHttpTransport(
       next();
     });
   }
+
+  if (options.reportingJobs) {
+    app.use(
+      "/internal/agency/reporting/jobs",
+      createRateLimiter(10, 60 * 1000),
+      createReportingJobHttpRouter(
+        options.reportingJobs.worker,
+        options.reportingJobs.identities,
+      ),
+    );
+  }
+
+  app.use(express.json({ limit: "10mb" }));
 
   if (config.multiTenantEnabled) {
     if (!isFirestoreEnabled()) {

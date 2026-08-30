@@ -26,6 +26,11 @@ La configuración no sustituye la firma independiente del payload del job. La
 identidad OIDC autoriza al workload; la firma liga tenant, workspace, cuenta y
 periodo al contenido exacto del job.
 
+El transporte HTTP permite montar `POST /internal/agency/reporting/jobs` sólo
+cuando recibe por inyección un worker y este verificador. La autenticación y el
+rol `scheduler` se validan antes de parsear el JSON, cuyo tamaño queda limitado
+a 20 KiB. La respuesta contiene únicamente `jobId` y `artifactId`.
+
 No se han configurado todavía una service account, audiencia ni cuenta Meta
-reales. El siguiente paso operativo es montar el endpoint interno y validar el
-flujo completo en staging.
+reales. Falta componer las dependencias Firestore/control plane al arrancar y
+validar el flujo completo en staging.
