@@ -1,5 +1,6 @@
 import type { HistoricalMetricLevel, ReportingScope } from "../historical-data/index.js";
 import type { IngestionAccount, InsightsIngestionResult } from "../ingestion/index.js";
+import type { StoredReportArtifact } from "../delivery/index.js";
 
 export interface IngestionJobPayload extends ReportingScope {
   readonly jobId: string;
@@ -12,6 +13,13 @@ export interface IngestionJobPayload extends ReportingScope {
   readonly breakdowns?: readonly string[];
   readonly mode?: "backfill" | "incremental";
   readonly lookbackDays?: number;
+}
+
+export interface ReportingJobPayload extends IngestionJobPayload {
+  readonly reportKind: "week" | "month";
+  readonly reportStartDate: string;
+  readonly reportEndDate: string;
+  readonly retentionDays?: number;
 }
 
 export interface IngestionJobEnvelope {
@@ -54,6 +62,18 @@ export interface IngestionRuntime {
   ): Promise<InsightsIngestionResult>;
 }
 
+export interface ReportingRuntimeResult {
+  readonly ingestion: InsightsIngestionResult;
+  readonly artifact: StoredReportArtifact;
+}
+
+export interface ReportingRuntime {
+  run(
+    connection: ResolvedIngestionConnection,
+    job: ReportingJobPayload,
+  ): Promise<ReportingRuntimeResult>;
+}
+
 export type IngestionAuditOutcome = "started" | "succeeded" | "rejected" | "failed";
 
 export interface IngestionAuditEvent extends ReportingScope {
@@ -76,4 +96,8 @@ export interface AgencyIngestionWorkerResult extends ReportingScope {
   readonly pagesRead: number;
   readonly watermarkDate: string;
   readonly runId: string;
+}
+
+export interface AgencyReportingWorkerResult extends AgencyIngestionWorkerResult {
+  readonly artifact: StoredReportArtifact;
 }

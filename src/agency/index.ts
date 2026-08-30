@@ -1,6 +1,7 @@
 export * from "./historical-data/index.js";
 export * from "./reporting/index.js";
 export * from "./excel/index.js";
+export * from "./delivery/index.js";
 export * from "./segmentation/index.js";
 export * from "./recommendations/index.js";
 export * from "./ingestion/index.js";

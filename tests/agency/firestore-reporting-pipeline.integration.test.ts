@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Firestore } from "@google-cloud/firestore";
 import {
   createFirestoreReadOnlyReportingPipeline,
+  FirestoreReportArtifactStore,
   InMemoryIngestionAssetPolicy,
+  type ReportObjectStore,
   type InsightsPageQuery,
   type InsightsPageReader,
   type MetaInsightRecord,
@@ -105,5 +107,36 @@ describeEmulator("Firestore read-only reporting pipeline integration", () => {
     });
     expect(result.excel.bytes.slice(0, 2)).toEqual(Uint8Array.of(0x50, 0x4b));
     expect(new TextDecoder().decode(result.excel.bytes)).not.toContain(scope.tenantId);
+  });
+
+  it("stores report metadata under its tenant and keeps object coordinates private", async () => {
+    const objects = new Map<string, Uint8Array>();
+    const objectStore: ReportObjectStore = {
+      async putObject(input) {
+        objects.set(input.objectKey, input.bytes.slice());
+      },
+    };
+    const artifacts = new FirestoreReportArtifactStore(db, objectStore);
+    const stored = await artifacts.store(scope, {
+      jobId: "emulator-report-delivery",
+      period: { kind: "week", startDate: "2026-08-24", endDate: "2026-08-30" },
+      report: {
+        filename: "meta-agency-report-2026-08-24-to-2026-08-30.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        bytes: Uint8Array.of(0x50, 0x4b, 0x03, 0x04),
+      },
+      createdAt: "2026-08-31T08:00:00.000Z",
+      retentionDays: 30,
+    });
+
+    expect(objects.size).toBe(1);
+    expect([...objects.keys()][0]).not.toContain(scope.tenantId);
+    await expect(artifacts.getMetadata(scope, stored.artifactId)).resolves.toEqual(stored);
+    await expect(artifacts.getMetadata(
+      { tenantId: `${scope.tenantId}-other`, workspaceId: scope.workspaceId },
+      stored.artifactId,
+    )).resolves.toBeNull();
+    expect(JSON.stringify(stored)).not.toContain("objectKey");
+    expect(JSON.stringify(stored)).not.toContain("bytes");
   });
 });

@@ -10,6 +10,7 @@ import type {
   IngestionRuntime,
   VerifiedWorkloadIdentity,
   WorkloadIdentityVerifier,
+  ResolvedIngestionConnection,
 } from "./types.js";
 
 const FORBIDDEN_SCOPES = new Set([
@@ -23,7 +24,7 @@ const FORBIDDEN_SCOPES = new Set([
   "whatsapp_business_messaging",
 ]);
 
-function validateJob(job: IngestionJobPayload): void {
+export function validateIngestionJob(job: IngestionJobPayload): void {
   assertReportingScope(job);
   assertIsoDate(job.startDate, "startDate");
   assertIsoDate(job.endDate, "endDate");
@@ -60,12 +61,21 @@ function validateJob(job: IngestionJobPayload): void {
   }
 }
 
-function assertScheduler(identity: VerifiedWorkloadIdentity): void {
+export function assertSchedulerIdentity(identity: VerifiedWorkloadIdentity): void {
   if (!identity.subject.trim() || !identity.issuer.trim() || !identity.audience.trim()) {
     throw new Error("Verified workload identity is incomplete");
   }
   if (!identity.roles.includes("scheduler")) {
     throw new Error("Workload identity lacks the scheduler role");
+  }
+}
+
+export function assertReadOnlyConnection(connection: ResolvedIngestionConnection): void {
+  if (!connection.scopes.includes("ads_read")) {
+    throw new Error("Resolved Meta token lacks ads_read");
+  }
+  if (connection.scopes.some((scope) => FORBIDDEN_SCOPES.has(scope))) {
+    throw new Error("Resolved Meta token carries a forbidden write scope");
   }
 }
 
@@ -103,18 +113,13 @@ export class AgencyIngestionWorker {
     let job: IngestionJobPayload | undefined;
     try {
       identity = await this.identities.verify(envelope.authorization);
-      assertScheduler(identity);
+      assertSchedulerIdentity(identity);
       job = await this.jobs.verify(envelope.payload, envelope.signature);
-      validateJob(job);
+      validateIngestionJob(job);
       await this.audit.record(auditEvent(job, identity, "started", this.now()));
 
       const connection = await this.connections.resolve(job, job.accountId);
-      if (!connection.scopes.includes("ads_read")) {
-        throw new Error("Resolved Meta token lacks ads_read");
-      }
-      if (connection.scopes.some((scope) => FORBIDDEN_SCOPES.has(scope))) {
-        throw new Error("Resolved Meta token carries a forbidden write scope");
-      }
+      assertReadOnlyConnection(connection);
       const result = await this.runtime.run(connection, job);
       await this.audit.record(auditEvent(job, identity, "succeeded", this.now()));
       return {

@@ -11,8 +11,10 @@ trabajan en ramas y no se fusionan automáticamente.
 **Estado:** `mvp/read-only-reporting` conecta la ingesta sintética de Ads
 Insights con histórico, reporting y el generador XLSX profesional. La prueba
 end-to-end valida KPIs, aislamiento, formato ZIP/OOXML, diez hojas esperadas y
-ausencia de tokens en el workbook. Falta ejecutar el mismo contrato contra una
-Meta Test App y Firestore Emulator antes de usar activos reales.
+ausencia de tokens en el workbook. El worker seguro ya puede ejecutar esta
+cadena y registrar un artefacto privado con metadata tenant-scoped, sin exponer
+bytes, object keys ni URLs. Falta ejecutar el contrato contra una Meta Test App
+y Firestore Emulator antes de usar activos reales.
 
 ## Fase 0 — Auditoría y hardening
 
@@ -110,8 +112,10 @@ negocio usando fixtures.
 **Estado:** orquestador inicial del worker implementado en
 `feature/agency-ingestion-worker`, con identidad y firma como dependencias
 obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
-Faltan verificación OIDC concreta, endpoint interno, repositorios Firestore del
-control plane, cola, leases, reintentos y dead-letter queue.
+La rama MVP añade el worker de reporting y entrega mediante un contrato de
+object storage con metadata Firestore aislada. Faltan el adaptador GCS, la
+verificación OIDC concreta, endpoint interno, repositorios Firestore del control
+plane, cola, leases, reintentos y dead-letter queue.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
@@ -160,8 +164,8 @@ Orden recomendado:
 
 1. Revisar las ramas encadenadas y decidir su integración sin merge automático.
 2. Crear tests de integración de histórico/checkpoints con Firestore emulator.
-3. Implementar el worker con identidad de workload y binding autoritativo de
-   tenant/workspace/cuenta.
+3. Implementar el adaptador GCS privado y el endpoint autenticado de descarga
+   con URLs firmadas de corta duración.
 4. Añadir lectores read-only de Pages e Instagram orgánico.
 5. Ejecutar contract tests en una Meta test app sin cuentas reales.
 6. Ensayar rotación y restore de claves con documentos ficticios.

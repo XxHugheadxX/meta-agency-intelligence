@@ -16,6 +16,10 @@ const ALLOWED_FIELDS = new Set([
   "breakdowns",
   "mode",
   "lookbackDays",
+  "reportKind",
+  "reportStartDate",
+  "reportEndDate",
+  "retentionDays",
 ]);
 
 function parsePayload(payload: string): IngestionJobPayload {

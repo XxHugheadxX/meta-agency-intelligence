@@ -3,3 +3,6 @@ export * from "./connection-resolver.js";
 export * from "./job-verifier.js";
 export * from "./runtime.js";
 export * from "./worker.js";
+export * from "./reporting-runtime.js";
+export * from "./firestore-reporting-runtime.js";
+export * from "./reporting-worker.js";
