@@ -17,6 +17,12 @@ const ACCOUNT_FIELDS = [
   "schemaVersion", "tenantId", "timezone", "tokenName", "workspaceId",
 ];
 
+export interface ProvisionAgencyWorkspaceInput extends ReportingScope {
+  readonly active: boolean;
+}
+
+export type ProvisionAgencyAccountInput = AgencyAccountConnection;
+
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
   const keys = Object.keys(value).sort();
   return keys.length === expected.length && keys.every((key, index) => key === [...expected].sort()[index]);
@@ -54,6 +60,52 @@ function workspaceReference(db: Firestore, scope: ReportingScope) {
     .collection("workspaces").doc(scope.workspaceId);
 }
 
+function assertWorkspaceDocument(
+  scope: ReportingScope,
+  data: Record<string, unknown> | undefined,
+  requireActive: boolean,
+): void {
+  if (
+    !data ||
+    !exactKeys(data, WORKSPACE_FIELDS) ||
+    data.schemaVersion !== 1 ||
+    typeof data.active !== "boolean" ||
+    (requireActive && data.active !== true) ||
+    data.tenantId !== scope.tenantId ||
+    data.workspaceId !== scope.workspaceId
+  ) {
+    throw new Error("Stored workspace ownership is invalid");
+  }
+}
+
+function accountDocument(input: ProvisionAgencyAccountInput) {
+  assertReportingScope(input);
+  safeIdentifier(input.tenantId, "tenantId");
+  safeIdentifier(input.workspaceId, "workspaceId");
+  safeIdentifier(input.accountId, "accountId");
+  if (!/^act_\d+$/.test(input.accountId)) throw new Error("accountId is invalid");
+  safeText(input.accountName, "accountName");
+  safeIdentifier(input.tokenName, "tokenName");
+  if (!/^[A-Z]{3}$/.test(input.currency)) throw new Error("currency is invalid");
+  safeText(input.timezone, "timezone", 100);
+  if (input.agentId !== null && input.agentId !== undefined) safeIdentifier(input.agentId, "agentId");
+  if (input.agentName !== null && input.agentName !== undefined) safeText(input.agentName, "agentName");
+  if (typeof input.active !== "boolean") throw new Error("active must be boolean");
+  return {
+    schemaVersion: 1,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    accountId: input.accountId,
+    accountName: input.accountName,
+    currency: input.currency,
+    timezone: input.timezone,
+    agentId: input.agentId ?? null,
+    agentName: input.agentName ?? null,
+    tokenName: input.tokenName,
+    active: input.active,
+  } as const;
+}
+
 export class FirestoreTenantWorkspacePolicy implements TenantWorkspacePolicy {
   constructor(private readonly db: Firestore) {}
 
@@ -61,16 +113,91 @@ export class FirestoreTenantWorkspacePolicy implements TenantWorkspacePolicy {
     const snapshot = await workspaceReference(this.db, scope).get();
     if (!snapshot.exists) throw new Error("Workspace is not assigned to this tenant");
     const data = snapshot.data();
-    if (
-      !data ||
-      !exactKeys(data, WORKSPACE_FIELDS) ||
-      data.schemaVersion !== 1 ||
-      data.active !== true ||
-      data.tenantId !== scope.tenantId ||
-      data.workspaceId !== scope.workspaceId
-    ) {
-      throw new Error("Stored workspace ownership is invalid");
+    assertWorkspaceDocument(scope, data, true);
+  }
+}
+
+export class FirestoreAgencyControlPlaneProvisioner {
+  constructor(
+    private readonly db: Firestore,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  private occurredAt(): Date {
+    const occurredAt = this.now();
+    if (!(occurredAt instanceof Date) || Number.isNaN(occurredAt.getTime())) {
+      throw new Error("Control plane clock returned an invalid date");
     }
+    return new Date(occurredAt.getTime());
+  }
+
+  async provisionWorkspace(
+    input: ProvisionAgencyWorkspaceInput,
+    actorSubject: string,
+  ): Promise<void> {
+    safeIdentifier(actorSubject, "actorSubject");
+    if (typeof input.active !== "boolean") throw new Error("active must be boolean");
+    const reference = workspaceReference(this.db, input);
+    const auditReference = reference.collection("control_plane_audit").doc(randomUUID());
+    const occurredAt = this.occurredAt();
+    await this.db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (existing.exists) assertWorkspaceDocument(input, existing.data(), false);
+      transaction.set(reference, {
+        schemaVersion: 1,
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        active: input.active,
+      }, { merge: false });
+      transaction.create(auditReference, {
+        schemaVersion: 1,
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        action: "workspace.provisioned",
+        actorSubject,
+        targetAccountId: null,
+        occurredAt,
+      });
+    });
+  }
+
+  async provisionAccount(
+    input: ProvisionAgencyAccountInput,
+    actorSubject: string,
+  ): Promise<void> {
+    safeIdentifier(actorSubject, "actorSubject");
+    const document = accountDocument(input);
+    const workspace = workspaceReference(this.db, input);
+    const reference = workspace.collection("account_connections").doc(input.accountId);
+    const auditReference = workspace.collection("control_plane_audit").doc(randomUUID());
+    const occurredAt = this.occurredAt();
+    await this.db.runTransaction(async (transaction) => {
+      const workspaceSnapshot = await transaction.get(workspace);
+      assertWorkspaceDocument(input, workspaceSnapshot.data(), true);
+      const existing = await transaction.get(reference);
+      if (existing.exists) {
+        const data = existing.data();
+        if (
+          !data ||
+          !exactKeys(data, ACCOUNT_FIELDS) ||
+          data.tenantId !== input.tenantId ||
+          data.workspaceId !== input.workspaceId ||
+          data.accountId !== input.accountId
+        ) {
+          throw new Error("Existing agency account identity is invalid");
+        }
+      }
+      transaction.set(reference, document, { merge: false });
+      transaction.create(auditReference, {
+        schemaVersion: 1,
+        tenantId: input.tenantId,
+        workspaceId: input.workspaceId,
+        action: "account.provisioned",
+        actorSubject,
+        targetAccountId: input.accountId,
+        occurredAt,
+      });
+    });
   }
 }
 
