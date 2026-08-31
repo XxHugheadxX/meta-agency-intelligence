@@ -143,4 +143,64 @@ describe("AgencyExcelReportGenerator", () => {
     expect(rawSheet).toContain("content_id");
     expect(rawSheet).toContain("content_type");
   });
+
+  it("creates one unified workbook while keeping paid, organic, and content datasets separate", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    await repository.upsert(tenantA, metricFixture({
+      metrics: { spend: 100, reach: 1_000, impressions: 2_000, clicks: 100, leads: 5 },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      level: "organic_account",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      metrics: { reach: 700, views: 900, profileVisits: 40, newFollowers: 8 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+      rawData: { source: "synthetic-organic-account" },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      level: "content",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      contentId: "7001",
+      contentName: "Reel Departamento Centro",
+      contentType: "reel",
+      metrics: { reach: 500, views: 800, interactions: 90, saves: 12, shares: 8 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+      rawData: { source: "synthetic-organic-content" },
+    }));
+    const report = await new AgencyReportingService(repository).createUnifiedWeeklyReport(
+      tenantA,
+      "2026-08-12",
+    );
+    const result = new AgencyExcelReportGenerator().generate(report, {
+      generatedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const files = unzipStored(result.bytes);
+    const summary = files.get("xl/worksheets/sheet1.xml") ?? "";
+    const dashboard = files.get("xl/worksheets/sheet2.xml") ?? "";
+    const contentSheet = files.get("xl/worksheets/sheet8.xml") ?? "";
+    const digitalSheet = files.get("xl/worksheets/sheet9.xml") ?? "";
+    const rawSheet = files.get("xl/worksheets/sheet10.xml") ?? "";
+
+    expect(summary).toContain("Orgánico de cuenta");
+    expect(summary).toContain("Contenido orgánico publicado");
+    expect(summary).not.toContain("<v>2200</v>");
+    expect(dashboard).toContain("Dataset organic_account; no sumado con Ads");
+    expect(contentSheet).toContain("Reel Departamento Centro");
+    expect(digitalSheet).toContain("Datasets separados; no sumar alcance entre fuentes.");
+    expect(digitalSheet).toContain("Meta Ads");
+    expect(rawSheet).toContain("organic_account");
+    expect(rawSheet).toContain("content");
+    expect(files.get("xl/charts/chart9.xml")).toContain("Reel Departamento Centro");
+  });
 });

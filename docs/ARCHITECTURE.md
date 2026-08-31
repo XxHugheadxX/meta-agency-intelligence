@@ -33,6 +33,10 @@ normaliza métricas y sólo avanza el watermark cuando la ventana completa qued�
 persistida. Los checkpoints y el histórico tienen implementaciones en memoria
 y Firestore; las pruebas usan exclusivamente respuestas sintéticas.
 
+El reporting unificado mantiene Ads, orgánico account-level y content-level como
+datasets separados dentro del mismo workbook. Esto conserva lineage y evita
+sumar audiencias potencialmente superpuestas; ver `UNIFIED_REPORTING.md`.
+
 `src/agency/worker/` contiene la orquestación inicial del worker: exige una
 identidad de workload verificada, valida un payload firmado con clave pública,
 resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y

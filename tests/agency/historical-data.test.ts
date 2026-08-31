@@ -100,5 +100,16 @@ describe("historical reporting data", () => {
     await expect(
       repository.upsert(tenantA, metricFixture({ adSetId: null })),
     ).rejects.toThrow("adSetId");
+    await expect(
+      repository.upsert(tenantA, metricFixture({ contentId: "unexpected" })),
+    ).rejects.toThrow("do not match");
+    await expect(
+      repository.upsert(tenantA, metricFixture({
+        level: "organic_account",
+        contentId: null,
+        contentName: null,
+        contentType: null,
+      })),
+    ).rejects.toThrow("do not match");
   });
 });

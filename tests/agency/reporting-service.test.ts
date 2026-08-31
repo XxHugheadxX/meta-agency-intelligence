@@ -144,4 +144,54 @@ describe("AgencyReportingService", () => {
     expect(report.current.metrics.followerCount).toBe(703);
     expect(report.current.metrics.newFollowers).toBe(6);
   });
+
+  it("builds a unified report without summing paid, organic, and content reach", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    await repository.upsert(tenantA, metricFixture({
+      metrics: { spend: 100, reach: 1_000, impressions: 2_000, clicks: 100, leads: 5 },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      level: "organic_account",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      metrics: { reach: 700, views: 900, profileVisits: 40, newFollowers: 8 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      level: "content",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      contentId: "7001",
+      contentName: "Reel Centro",
+      contentType: "reel",
+      metrics: { reach: 500, views: 800, interactions: 90, saves: 12, shares: 8 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+    }));
+    await repository.upsert(tenantB, metricFixture({
+      metrics: { reach: 99_999, leads: 99_999 },
+    }));
+
+    const report = await new AgencyReportingService(repository).createUnifiedWeeklyReport(
+      tenantA,
+      "2026-08-12",
+    );
+    expect(report.current.metrics.reach).toBe(1_000);
+    expect(report.sources?.paid.current.metrics.reach).toBe(1_000);
+    expect(report.sources?.organicAccount.current.metrics.reach).toBe(700);
+    expect(report.sources?.content.current.metrics.reach).toBe(500);
+    expect(report.sources?.paid.rawRows).toHaveLength(1);
+    expect(report.sources?.organicAccount.rawRows).toHaveLength(1);
+    expect(report.sources?.content.rawRows).toHaveLength(1);
+    expect(report.rawRows).toEqual(report.sources?.paid.rawRows);
+  });
 });

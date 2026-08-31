@@ -62,5 +62,5 @@ el tipo de contenido y la aprobación de la aplicación.
 3. Implementar Facebook post-level sólo después de validar métricas y respuesta
    actuales; no reutilizar a ciegas el contrato de Instagram.
 4. Añadir checkpoints incrementales para contenido y ejecución programada.
-5. Componer reportes pagados, orgánicos account-level y content-level en un
-   único workbook sin sumar métricas incompatibles.
+5. Integrar las tres ingestas dentro del mismo job programado; la composición
+   segura del workbook ya está implementada en `UNIFIED_REPORTING.md`.

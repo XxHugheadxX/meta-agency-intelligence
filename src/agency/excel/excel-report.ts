@@ -1,6 +1,7 @@
 import {
   aggregateRows,
   type AgencyReport,
+  type AgencyReportDataset,
 } from "../reporting/index.js";
 import {
   type HistoricalMetricRow,
@@ -196,10 +197,16 @@ function metricRows(metrics: MetricValues): Row[] {
 }
 
 function metricTableRows(report: AgencyReport): Row[] {
+  return comparisonRows(report.comparison);
+}
+
+function comparisonRows(
+  comparison: AgencyReport["comparison"],
+): Row[] {
   return [
     [{ value: "Métrica", style: 1 }, { value: "Actual", style: 1 }, { value: "Anterior", style: 1 }, { value: "Variación", style: 1 }, { value: "Variación %", style: 1 }],
     ...METRIC_LABELS.map(([metric, label, style]) => {
-      const change = report.comparison[metric];
+      const change = comparison[metric];
       return [
         { value: label },
         { value: excelMetricValue(metric, change.current), style },
@@ -208,6 +215,48 @@ function metricTableRows(report: AgencyReport): Row[] {
         { value: metricValue(change.percentageChange === null ? null : change.percentageChange / 100), style: 4 },
       ];
     }),
+  ];
+}
+
+function reportSourceRows(report: AgencyReport): {
+  paid: readonly HistoricalMetricRow[];
+  organicAccount: readonly HistoricalMetricRow[];
+  content: readonly HistoricalMetricRow[];
+  all: readonly HistoricalMetricRow[];
+} {
+  const paid = report.sources?.paid.rawRows ?? (
+    report.granularity === "organic_account" || report.granularity === "content" ? [] : report.rawRows
+  );
+  const organicAccount = report.sources?.organicAccount.rawRows ?? (
+    report.granularity === "organic_account" ? report.rawRows : []
+  );
+  const content = report.sources?.content.rawRows ?? (
+    report.granularity === "content" ? report.rawRows : []
+  );
+  const all = [...paid, ...organicAccount, ...content]
+    .sort((left, right) =>
+      left.date.localeCompare(right.date) ||
+      left.level.localeCompare(right.level) ||
+      left.id.localeCompare(right.id));
+  return { paid, organicAccount, content, all };
+}
+
+function datasetSection(title: string, dataset: AgencyReportDataset): Row[] {
+  return [
+    [{ value: title, style: 1 }, { value: `Nivel: ${dataset.granularity}` }],
+    ...comparisonRows(dataset.comparison),
+    [],
+  ];
+}
+
+function digitalMetricRows(report: AgencyReport): Row[] {
+  if (!report.sources) return metricTableRows(report);
+  return [
+    [{ value: "Métricas Digitales", style: 1 }, { value: "Datasets separados; no sumar alcance entre fuentes." }],
+    [],
+    ...datasetSection("Meta Ads", report.sources.paid),
+    ...datasetSection("Orgánico de cuenta", report.sources.organicAccount),
+    ...datasetSection("Contenido orgánico publicado", report.sources.content),
   ];
 }
 
@@ -354,7 +403,10 @@ function topContent(rows: readonly HistoricalMetricRow[]): Array<{ name: string;
     .map((entry) => ({ name: entry.name, value: entry.metrics.interactions }));
 }
 
-function chartsFor(report: AgencyReport): ChartDefinition[] {
+function chartsFor(
+  report: AgencyReport,
+  contentRowsForReport: readonly HistoricalMetricRow[] = [],
+): ChartDefinition[] {
   const daily = categorySeries(report.rawRows);
   const weekGroups = new Map<string, HistoricalMetricRow[]>();
   for (const row of report.rawRows) {
@@ -370,7 +422,7 @@ function chartsFor(report: AgencyReport): ChartDefinition[] {
   const weeks = [...weekGroups.keys()].sort();
   const weekly = weeks.map((week) => aggregateRows(weekGroups.get(week) ?? []).metrics);
   const campaigns = aggregateBy(report.rawRows.filter((row) => row.campaignId !== null), (row) => row.campaignId ?? "sin-id", (row) => row.campaignName ?? "Sin nombre").slice(0, 10);
-  const contents = topContent(report.rawRows);
+  const contents = topContent(contentRowsForReport.length > 0 ? contentRowsForReport : report.rawRows);
   const charts: ChartDefinition[] = [
     { title: "Alcance diario", kind: "line", categories: daily.categories, series: [{ name: "Alcance", values: daily.aggregates.map((metric) => metric.reach) }] },
     { title: "Clics diarios", kind: "line", categories: daily.categories, series: [{ name: "Clics", values: daily.aggregates.map((metric) => metric.clicks) }] },
@@ -532,11 +584,21 @@ export class AgencyExcelReportGenerator {
     const filename = options.filename ?? `meta-agency-report-${report.period.startDate}-to-${report.period.endDate}.xlsx`;
     if (!/^[a-zA-Z0-9._-]+\.xlsx$/.test(filename)) throw new Error("filename must be a safe .xlsx filename");
 
-    const charts = chartsFor(report);
+    const sourceRows = reportSourceRows(report);
+    const charts = chartsFor(report, sourceRows.content);
     const sources = sourceDataRows(charts);
+    const organicMetrics = report.sources?.organicAccount.current.metrics;
     const dashboardKpis: Row[] = [
-      [{ value: "Dashboard Visual", style: 1 }, { value: `Periodo: ${report.period.startDate} a ${report.period.endDate}` }],
-      [{ value: "Métrica", style: 1 }, { value: "Valor", style: 1 }, { value: "Auditoría", style: 1 }],
+      [
+        { value: "Dashboard Visual", style: 1 },
+        { value: `Periodo: ${report.period.startDate} a ${report.period.endDate}` },
+        {},
+        { value: "Orgánico de cuenta", style: 1 },
+      ],
+      [
+        { value: "Métrica Ads", style: 1 }, { value: "Valor", style: 1 }, { value: "Auditoría", style: 1 },
+        { value: "Métrica orgánica", style: 1 }, { value: "Valor", style: 1 }, { value: "Auditoría", style: 1 },
+      ],
       ...METRIC_LABELS.map(([metric, label, style], index) => [
         { value: label },
         {
@@ -545,11 +607,14 @@ export class AgencyExcelReportGenerator {
           style,
         },
         { value: "Vinculado a Resumen Ejecutivo" },
+        { value: label },
+        { value: excelMetricValue(metric, organicMetrics?.[metric]), style },
+        { value: report.sources ? "Dataset organic_account; no sumado con Ads" : "Sin dataset orgánico" },
       ]),
     ];
     const dashboardRows = Array.from({ length: Math.max(dashboardKpis.length, sources.rows.length) }, (_, index) => [
-      ...(dashboardKpis[index] ?? Array.from({ length: 3 }, () => ({}))),
-      ...Array.from({ length: 12 }, () => ({})),
+      ...(dashboardKpis[index] ?? Array.from({ length: 6 }, () => ({}))),
+      ...Array.from({ length: 9 }, () => ({})),
       ...((sources.rows[index] ?? []) as Row),
     ]);
     const currencyNote = report.current.currencies.length > 1
@@ -565,6 +630,16 @@ export class AgencyExcelReportGenerator {
       [{ value: "Desglose por moneda", style: 1 }],
       [{ value: "Moneda", style: 1 }, { value: "Inversión", style: 1 }, { value: "CPC", style: 1 }, { value: "CPM", style: 1 }, { value: "CPL", style: 1 }],
       ...Object.entries(report.current.currencyBreakdown).map(([currency, metrics]) => [{ value: currency }, { value: metricValue(metrics.spend), style: 3 }, { value: metricValue(metrics.cpc), style: 3 }, { value: metricValue(metrics.cpm), style: 3 }, { value: metricValue(metrics.cpl), style: 3 }]),
+      ...(report.sources ? [
+        [] as Row,
+        [{ value: "Orgánico de cuenta", style: 1 }, { value: "No se suma con Ads para evitar doble conteo." }] as Row,
+        [{ value: "Métrica", style: 1 }, { value: "Actual", style: 1 }] as Row,
+        ...metricRows(report.sources.organicAccount.current.metrics),
+        [] as Row,
+        [{ value: "Contenido orgánico publicado", style: 1 }, { value: "Snapshots lifetime por fecha de publicación." }] as Row,
+        [{ value: "Métrica", style: 1 }, { value: "Actual", style: 1 }] as Row,
+        ...metricRows(report.sources.content.current.metrics),
+      ] : []),
     ];
     const sheets: Sheet[] = [
       { name: EXCEL_REPORT_SHEETS[0], rows: summary },
@@ -576,12 +651,12 @@ export class AgencyExcelReportGenerator {
       },
       { name: EXCEL_REPORT_SHEETS[2], rows: periodRows(report, "week") },
       { name: EXCEL_REPORT_SHEETS[3], rows: periodRows(report, "month") },
-      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(report.rawRows, "campaign") },
-      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(report.rawRows, "adSet") },
-      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(report.rawRows, "ad") },
-      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows(report.rawRows) },
-      { name: EXCEL_REPORT_SHEETS[8], rows: metricTableRows(report) },
-      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(report.rawRows) },
+      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(sourceRows.paid, "campaign") },
+      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(sourceRows.paid, "adSet") },
+      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(sourceRows.paid, "ad") },
+      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows([...sourceRows.paid, ...sourceRows.content]) },
+      { name: EXCEL_REPORT_SHEETS[8], rows: digitalMetricRows(report) },
+      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(sourceRows.all) },
     ];
     const files = new Map<string, string>();
     files.set("[Content_Types].xml", contentTypesXml(sheets.length, charts.length));

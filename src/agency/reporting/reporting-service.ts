@@ -6,6 +6,7 @@ import {
   type HistoricalMetricRow,
   type MetricName,
   type MetricValues,
+  type PaidHistoricalMetricLevel,
   type ReportingScope,
 } from "../historical-data/index.js";
 
@@ -37,6 +38,20 @@ export interface RankingEntry {
   rowCount: number;
 }
 
+export interface AgencyReportDataset {
+  granularity: HistoricalMetricLevel;
+  current: AggregateMetrics;
+  previous: AggregateMetrics;
+  comparison: Readonly<Record<MetricName, MetricComparison>>;
+  rawRows: readonly HistoricalMetricRow[];
+}
+
+export interface AgencyReportSources {
+  paid: AgencyReportDataset;
+  organicAccount: AgencyReportDataset;
+  content: AgencyReportDataset;
+}
+
 export interface AgencyReport {
   scope: ReportingScope;
   period: ReportPeriod;
@@ -48,11 +63,19 @@ export interface AgencyReport {
   accountRanking: readonly RankingEntry[];
   agentRanking: readonly RankingEntry[];
   rawRows: readonly HistoricalMetricRow[];
+  /** Present for unified workbooks. Source datasets stay separate to prevent double counting. */
+  sources?: AgencyReportSources;
 }
 
 export interface CreateReportInput {
   period: ReportPeriod;
   granularity?: HistoricalMetricLevel;
+  rankBy?: MetricName;
+}
+
+export interface CreateUnifiedReportInput {
+  period: ReportPeriod;
+  paidGranularity?: PaidHistoricalMetricLevel;
   rankBy?: MetricName;
 }
 
@@ -229,30 +252,80 @@ function ranking(
     .sort((left, right) => (right.metrics[rankBy] ?? -Infinity) - (left.metrics[rankBy] ?? -Infinity) || left.name.localeCompare(right.name));
 }
 
+async function reportDataset(
+  historicalData: HistoricalDataRepository,
+  scope: ReportingScope,
+  period: ReportPeriod,
+  before: ReportPeriod,
+  granularity: HistoricalMetricLevel,
+): Promise<AgencyReportDataset> {
+  const [currentRows, previousRows] = await Promise.all([
+    historicalData.list(scope, { ...period, level: granularity }),
+    historicalData.list(scope, { ...before, level: granularity }),
+  ]);
+  const current = aggregateRows(currentRows);
+  const previous = aggregateRows(previousRows);
+  return {
+    granularity,
+    current,
+    previous,
+    comparison: compare(current.metrics, previous.metrics),
+    rawRows: currentRows,
+  };
+}
+
 export class AgencyReportingService {
   constructor(private readonly historicalData: HistoricalDataRepository) {}
 
   async createReport(scope: ReportingScope, input: CreateReportInput): Promise<AgencyReport> {
     const granularity = input.granularity ?? "ad";
     const before = previousPeriod(input.period);
-    const [currentRows, previousRows] = await Promise.all([
-      this.historicalData.list(scope, { ...input.period, level: granularity }),
-      this.historicalData.list(scope, { ...before, level: granularity }),
-    ]);
-    const current = aggregateRows(currentRows);
-    const previous = aggregateRows(previousRows);
+    const dataset = await reportDataset(
+      this.historicalData,
+      scope,
+      input.period,
+      before,
+      granularity,
+    );
     const rankBy = input.rankBy ?? "leads";
     return {
       scope: { ...scope },
       period: { ...input.period },
       previousPeriod: before,
       granularity,
-      current,
-      previous,
-      comparison: compare(current.metrics, previous.metrics),
-      accountRanking: ranking(currentRows, "account", rankBy),
-      agentRanking: ranking(currentRows, "agent", rankBy),
-      rawRows: currentRows,
+      current: dataset.current,
+      previous: dataset.previous,
+      comparison: dataset.comparison,
+      accountRanking: ranking(dataset.rawRows, "account", rankBy),
+      agentRanking: ranking(dataset.rawRows, "agent", rankBy),
+      rawRows: dataset.rawRows,
+    };
+  }
+
+  async createUnifiedReport(
+    scope: ReportingScope,
+    input: CreateUnifiedReportInput,
+  ): Promise<AgencyReport> {
+    const paidGranularity = input.paidGranularity ?? "ad";
+    const before = previousPeriod(input.period);
+    const [paid, organicAccount, content] = await Promise.all([
+      reportDataset(this.historicalData, scope, input.period, before, paidGranularity),
+      reportDataset(this.historicalData, scope, input.period, before, "organic_account"),
+      reportDataset(this.historicalData, scope, input.period, before, "content"),
+    ]);
+    const rankBy = input.rankBy ?? "leads";
+    return {
+      scope: { ...scope },
+      period: { ...input.period },
+      previousPeriod: before,
+      granularity: paidGranularity,
+      current: paid.current,
+      previous: paid.previous,
+      comparison: paid.comparison,
+      accountRanking: ranking(paid.rawRows, "account", rankBy),
+      agentRanking: ranking(paid.rawRows, "agent", rankBy),
+      rawRows: paid.rawRows,
+      sources: { paid, organicAccount, content },
     };
   }
 
@@ -262,5 +335,28 @@ export class AgencyReportingService {
 
   createMonthlyReport(scope: ReportingScope, year: number, month: number, granularity?: HistoricalMetricLevel): Promise<AgencyReport> {
     return this.createReport(scope, { period: monthlyPeriod(year, month), granularity });
+  }
+
+  createUnifiedWeeklyReport(
+    scope: ReportingScope,
+    containingDate: string,
+    paidGranularity?: PaidHistoricalMetricLevel,
+  ): Promise<AgencyReport> {
+    return this.createUnifiedReport(scope, {
+      period: weeklyPeriod(containingDate),
+      paidGranularity,
+    });
+  }
+
+  createUnifiedMonthlyReport(
+    scope: ReportingScope,
+    year: number,
+    month: number,
+    paidGranularity?: PaidHistoricalMetricLevel,
+  ): Promise<AgencyReport> {
+    return this.createUnifiedReport(scope, {
+      period: monthlyPeriod(year, month),
+      paidGranularity,
+    });
   }
 }

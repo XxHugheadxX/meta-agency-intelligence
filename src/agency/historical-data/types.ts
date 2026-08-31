@@ -212,6 +212,17 @@ export function normalizeHistoricalMetric(
       throw new Error("contentType is required for content level");
     }
   }
+  const hasPaidDimensions = Boolean(
+    input.campaignId || input.campaignName || input.adSetId || input.adSetName || input.adId || input.adName,
+  );
+  const hasContentDimensions = Boolean(input.contentId || input.contentName || input.contentType);
+  if (
+    (input.level === "organic_account" && (hasPaidDimensions || hasContentDimensions)) ||
+    (input.level === "content" && hasPaidDimensions) ||
+    ((input.level === "account" || input.level === "campaign" || input.level === "ad_set" || input.level === "ad") && hasContentDimensions)
+  ) {
+    throw new Error("Historical metric dimensions do not match its level");
+  }
   if (!input.rawData || Array.isArray(input.rawData)) {
     throw new Error("rawData must be an aggregate, non-PII object");
   }

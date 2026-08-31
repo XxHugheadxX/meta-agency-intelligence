@@ -103,8 +103,10 @@ ausentes.
 ## Fase 4 — Reporting y Excel
 
 **Estado:** workbook semanal/mensual editable y sin macros implementado y
-validado automáticamente con fixtures; queda pendiente aprobación manual de
-negocio y smoke test final en Microsoft Excel de escritorio.
+validado automáticamente con fixtures. La composición unificada conserva Ads,
+orgánico account-level y content-level en datasets separados para evitar doble
+conteo. Queda pendiente aprobación manual de negocio y smoke test final en
+Microsoft Excel de escritorio.
 
 - Implementar `reporting/` y `excel/` separados del pipeline de ingesta.
 - Workbook semanal y mensual con hojas, tablas, fórmulas y gráficos definidos.

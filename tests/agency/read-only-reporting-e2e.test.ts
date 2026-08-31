@@ -12,7 +12,7 @@ import {
   type InsightsPageReader,
   type MetaInsightRecord,
 } from "../../src/agency/index.js";
-import { tenantA } from "./fixtures.js";
+import { metricFixture, tenantA } from "./fixtures.js";
 
 class SyntheticMetaReader implements InsightsPageReader {
   readonly queries: InsightsPageQuery[] = [];
@@ -89,6 +89,35 @@ describe("read-only reporting MVP end-to-end", () => {
       ],
     }]);
     const historical = new InMemoryHistoricalDataRepository();
+    await historical.upsert(tenantA, metricFixture({
+      level: "organic_account",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      metrics: { reach: 800, views: 1_100, profileVisits: 50, newFollowers: 9 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+      rawData: { source: "synthetic-organic-account" },
+    }));
+    await historical.upsert(tenantA, metricFixture({
+      level: "content",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      contentId: "7001",
+      contentName: "Reel Departamento Centro",
+      contentType: "reel",
+      metrics: { reach: 600, views: 900, interactions: 100, saves: 15, shares: 10 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+      rawData: { source: "synthetic-organic-content" },
+    }));
     const checkpoints = new InMemoryIngestionCheckpointRepository();
     const policy = new InMemoryIngestionAssetPolicy();
     policy.allow(tenantA, "act_100");
@@ -142,17 +171,22 @@ describe("read-only reporting MVP end-to-end", () => {
       ctr: 4.6,
       cpl: 20,
     });
+    expect(result.report.sources?.organicAccount.current.metrics.reach).toBe(800);
+    expect(result.report.sources?.content.current.metrics.reach).toBe(600);
     expect(result.excel.filename).toBe("inmobiliaria-norte-semanal-2026-08-10.xlsx");
     expect(result.excel.bytes.slice(0, 2)).toEqual(Uint8Array.of(0x50, 0x4b));
     const workbook = unzipStored(result.excel.bytes).get("xl/workbook.xml") ?? "";
     expect(EXCEL_REPORT_SHEETS.every((sheet) => workbook.includes(`name=\"${sheet}\"`))).toBe(true);
     const serialized = new TextDecoder().decode(result.excel.bytes);
+    const files = unzipStored(result.excel.bytes);
+    expect(files.get("xl/worksheets/sheet8.xml")).toContain("Reel Departamento Centro");
+    expect(files.get("xl/worksheets/sheet9.xml")).toContain("Datasets separados");
     expect(serialized).not.toContain("access_token");
     expect(serialized).not.toContain(tenantA.tenantId);
     await expect(historical.list(tenantA, {
       startDate: "2026-08-10",
       endDate: "2026-08-16",
-    })).resolves.toHaveLength(2);
+    })).resolves.toHaveLength(4);
   });
 
   it("rejects a report period not covered by the bounded ingestion window", async () => {

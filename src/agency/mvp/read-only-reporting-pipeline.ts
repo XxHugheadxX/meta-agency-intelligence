@@ -41,9 +41,9 @@ export class AgencyReadOnlyReportingPipeline {
       throw new Error("The ingestion window must fully cover the requested report period");
     }
     const ingestion = await this.ingestion.run(input.ingestion);
-    const report = await this.reporting.createReport(input.ingestion.scope, {
+    const report = await this.reporting.createUnifiedReport(input.ingestion.scope, {
       period: input.period,
-      granularity: input.ingestion.level,
+      paidGranularity: input.ingestion.level,
     });
     const excel = this.excel.generate(report, input.excel);
     return { ingestion, report, excel };
