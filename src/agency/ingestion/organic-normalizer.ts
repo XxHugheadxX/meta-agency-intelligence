@@ -50,10 +50,10 @@ function outputMetric(
   const mapping: Readonly<Record<string, keyof MetricValuesInput>> =
     platform === "facebook_page"
       ? {
-          page_impressions: "impressions",
-          page_impressions_unique: "reach",
-          page_post_engagements: "interactions",
-          page_views_total: "profileVisits",
+          views: "views",
+          total_interactions: "interactions",
+          profile_visits: "profileVisits",
+          follows: "followerCount",
         }
       : {
           reach: "reach",
@@ -83,8 +83,6 @@ export function normalizeOrganicInsights(
 ): OrganicHistoricalInput[] {
   const daily = new Map<string, { metrics: MetricValuesInput; raw: Record<string, unknown> }>();
   const seen = new Set<string>();
-  const follows = new Map<string, number>();
-  const unfollows = new Map<string, number>();
 
   for (const record of records) {
     if (typeof record.name !== "string" || !record.name.trim()) {
@@ -106,31 +104,19 @@ export function normalizeOrganicInsights(
         endTime: entry.date,
       });
       daily.set(entry.date, row);
-      if (record.name === "page_daily_follows") follows.set(entry.date, entry.value);
-      else if (record.name === "page_daily_unfollows") unfollows.set(entry.date, entry.value);
-      else {
-        const metric = outputMetric(record.name, context.asset.platform);
-        if (metric) row.metrics[metric] = entry.value;
-      }
+      const metric = outputMetric(record.name, context.asset.platform);
+      if (metric) row.metrics[metric] = entry.value;
     }
   }
 
-  if (context.asset.platform === "facebook_page") {
-    for (const [date, row] of daily) {
-      if (follows.has(date) && unfollows.has(date)) {
-        row.metrics.newFollowers = (follows.get(date) ?? 0) - (unfollows.get(date) ?? 0);
-      }
-    }
-  } else {
-    const followerSeries = [...daily.entries()]
-      .filter(([, row]) => row.metrics.followerCount !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right));
-    for (let index = 1; index < followerSeries.length; index += 1) {
-      const [, previous] = followerSeries[index - 1];
-      const [, current] = followerSeries[index];
-      current.metrics.newFollowers =
-        (current.metrics.followerCount as number) - (previous.metrics.followerCount as number);
-    }
+  const followerSeries = [...daily.entries()]
+    .filter(([, row]) => row.metrics.followerCount !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  for (let index = 1; index < followerSeries.length; index += 1) {
+    const [, previous] = followerSeries[index - 1];
+    const [, current] = followerSeries[index];
+    current.metrics.newFollowers =
+      (current.metrics.followerCount as number) - (previous.metrics.followerCount as number);
   }
 
   return [...daily.entries()]

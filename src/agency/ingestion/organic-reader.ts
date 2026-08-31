@@ -9,12 +9,10 @@ import type {
 
 export const ORGANIC_ACCOUNT_METRICS: Readonly<Record<OrganicPlatform, readonly string[]>> = {
   facebook_page: [
-    "page_impressions",
-    "page_impressions_unique",
-    "page_post_engagements",
-    "page_views_total",
-    "page_daily_follows",
-    "page_daily_unfollows",
+    "views",
+    "total_interactions",
+    "profile_visits",
+    "follows",
   ],
   instagram: [
     "reach",
@@ -45,7 +43,7 @@ export class MetaOrganicInsightsReader implements OrganicInsightsPageReader {
       until: query.endDate,
       limit: 100,
       after: query.after,
-      metric_type: query.asset.platform === "instagram" ? "time_series" : undefined,
+      metric_type: "time_series",
     };
     return this.client.get<MetaApiResponse<OrganicInsightRecord>>(
       `/${query.asset.assetId}/insights`,

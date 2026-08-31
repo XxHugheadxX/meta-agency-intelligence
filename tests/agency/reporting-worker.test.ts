@@ -209,6 +209,29 @@ describe("agency reporting worker", () => {
         if (path === "/700/insights") {
           return { data: [{ name: "reach", values: [{ value: 500 }] }] } as T;
         }
+        if (path === "/400/insights") {
+          return { data: [
+            { name: "views", values: [{ value: 1_400, end_time: "2026-08-24T23:59:59+0000" }] },
+            { name: "total_interactions", values: [{ value: 250, end_time: "2026-08-24T23:59:59+0000" }] },
+            { name: "profile_visits", values: [{ value: 55, end_time: "2026-08-24T23:59:59+0000" }] },
+            { name: "follows", values: [{ value: 800, end_time: "2026-08-24T23:59:59+0000" }] },
+          ] } as T;
+        }
+        if (path === "/400/published_posts") {
+          return { data: [{
+            id: "400_800",
+            message: "Casa Facebook Orgánica",
+            created_time: "2026-08-24T13:00:00.000Z",
+            permalink_url: "https://www.facebook.com/400/posts/800/",
+            status_type: "added_photos",
+          }] } as T;
+        }
+        if (path === "/400_800/insights") {
+          return { data: [
+            { name: "views", values: [{ value: 900 }] },
+            { name: "total_interactions", values: [{ value: 70 }] },
+          ] } as T;
+        }
         return {
           data: [{
             account_id: "100",
@@ -244,15 +267,25 @@ describe("agency reporting worker", () => {
         "read_insights",
         "instagram_basic",
         "instagram_manage_insights",
+        "pages_read_engagement",
       ],
-      allowedAssetIds: ["300"],
-      organicAssets: [{
-        assetId: "300",
-        assetName: "Instagram Norte",
-        platform: "instagram",
-        currency: "BOB",
-        timezone: "America/La_Paz",
-      }],
+      allowedAssetIds: ["300", "400"],
+      organicAssets: [
+        {
+          assetId: "300",
+          assetName: "Instagram Norte",
+          platform: "instagram",
+          currency: "BOB",
+          timezone: "America/La_Paz",
+        },
+        {
+          assetId: "400",
+          assetName: "Facebook Norte",
+          platform: "facebook_page",
+          currency: "BOB",
+          timezone: "America/La_Paz",
+        },
+      ],
     };
     const context = workerHarness(runtime, organicConnection);
 
@@ -265,16 +298,19 @@ describe("agency reporting worker", () => {
     expect(calls.map(({ path }) => path)).toEqual([
       "/act_100/insights",
       "/300/insights",
+      "/400/insights",
       "/300/media",
       "/700/insights",
+      "/400/published_posts",
+      "/400_800/insights",
     ]);
     expect(calls.every(({ token }) => token === connection.accessToken)).toBe(true);
     expect(result).toMatchObject({
       ...tenantA,
       jobId: job.jobId,
       accountId: "act_100",
-      rowsWritten: 3,
-      pagesRead: 3,
+      rowsWritten: 5,
+      pagesRead: 5,
       artifact: {
         ...tenantA,
         filename: "meta-agency-report-2026-08-24-to-2026-08-30.xlsx",
@@ -293,6 +329,8 @@ describe("agency reporting worker", () => {
       "ad",
       "content",
       "content",
+      "content",
+      "organic_account",
       "organic_account",
       "organic_account",
     ]);
@@ -300,6 +338,7 @@ describe("agency reporting worker", () => {
       artifacts.readBytes(tenantA, result.artifact.artifactId),
     );
     expect(workbook).toContain("Reel Orgánico");
+    expect(workbook).toContain("Casa Facebook Orgánica");
     expect(workbook).not.toContain("Cuenta Fuera Del Job");
     expect(workbook).not.toContain("Contenido Fuera Del Job");
     await expect(artifacts.getMetadata(tenantB, result.artifact.artifactId))

@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { MetaApiResponse } from "../../src/meta/types/common.js";
 import {
   AgencyOrganicContentIngestionService,
+  FACEBOOK_POST_FIELDS,
+  FACEBOOK_POST_METRICS,
   InMemoryOrganicAssetPolicy,
   INSTAGRAM_CONTENT_FIELDS,
   INSTAGRAM_CONTENT_METRICS,
+  MetaFacebookPostReader,
   MetaInstagramContentReader,
+  MetaPlatformContentReader,
+  normalizeFacebookPost,
+  normalizeFacebookPostInsights,
   normalizeInstagramContent,
   normalizeInstagramContentInsights,
   type OrganicAsset,
@@ -29,6 +35,16 @@ const asset: OrganicAsset = {
   agentName: "Ana",
 };
 
+const facebookAsset: OrganicAsset = {
+  assetId: "8001",
+  assetName: "Inmobiliaria Norte Facebook",
+  platform: "facebook_page",
+  currency: "BOB",
+  timezone: "America/La_Paz",
+  agentId: "agent-ana",
+  agentName: "Ana",
+};
+
 function content(overrides: Partial<OrganicContentRecord> = {}): OrganicContentRecord {
   return {
     id: "7001",
@@ -37,6 +53,17 @@ function content(overrides: Partial<OrganicContentRecord> = {}): OrganicContentR
     media_product_type: "REELS",
     timestamp: "2026-08-10T15:00:00+0000",
     permalink: "https://www.instagram.com/reel/synthetic/?utm_source=test#fragment",
+    ...overrides,
+  };
+}
+
+function facebookPost(overrides: Partial<OrganicContentRecord> = {}): OrganicContentRecord {
+  return {
+    id: "8001_6001",
+    message: "Casa familiar en venta",
+    created_time: "2026-08-12T14:30:00+0000",
+    permalink_url: "https://www.facebook.com/8001/posts/6001/?tracking=test#fragment",
+    status_type: "added_photos",
     ...overrides,
   };
 }
@@ -83,10 +110,14 @@ class SyntheticContentReader implements OrganicContentReader {
   }
 }
 
-function createService(reader: OrganicContentReader, allowedScope = tenantA) {
+function createService(
+  reader: OrganicContentReader,
+  allowedScope = tenantA,
+  allowedAsset = asset,
+) {
   const historical = new InMemoryHistoricalDataRepository();
   const policy = new InMemoryOrganicAssetPolicy();
-  policy.allow(allowedScope, "instagram", asset.assetId);
+  policy.allow(allowedScope, allowedAsset.platform, allowedAsset.assetId);
   return {
     historical,
     ingestion: new AgencyOrganicContentIngestionService(
@@ -275,5 +306,155 @@ describe("Instagram organic content ingestion", () => {
     );
     expect(row.metrics.interactions).toBe(19);
     expect(row.quality).toBe("partial");
+  });
+});
+
+describe("Facebook Page post ingestion", () => {
+  const facebookRequest = {
+    scope: tenantA,
+    asset: facebookAsset,
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+    apiVersion: "v25.0",
+    runId: "facebook-post-synthetic-1",
+  } as const;
+
+  it("uses bounded GET-only discovery and insights requests", async () => {
+    const calls: Array<{ path: string; params?: Readonly<Record<string, unknown>> }> = [];
+    const client: OrganicReadOnlyMetaClient = {
+      async get<T>(path: string, params?: Readonly<Record<string, string | number | boolean | undefined>>) {
+        calls.push({ path, params });
+        return { data: [] } as T;
+      },
+    };
+    const reader = new MetaFacebookPostReader(client);
+    const normalized = normalizeFacebookPost(facebookPost());
+    await reader.readContentPage({
+      asset: facebookAsset,
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+      after: "cursor-fb",
+    });
+    await reader.readInsights({ asset: facebookAsset, content: normalized });
+
+    expect(calls).toEqual([
+      {
+        path: "/8001/published_posts",
+        params: {
+          fields: FACEBOOK_POST_FIELDS.join(","),
+          since: "2026-08-01",
+          until: "2026-08-31",
+          limit: 100,
+          after: "cursor-fb",
+        },
+      },
+      {
+        path: "/8001_6001/insights",
+        params: { metric: FACEBOOK_POST_METRICS.join(",") },
+      },
+    ]);
+    expect(JSON.stringify(calls)).not.toMatch(/access_token|authorization|client_secret/i);
+  });
+
+  it("normalizes post identity, safe permalink, and modern view metrics", () => {
+    const item = normalizeFacebookPost(facebookPost({
+      message: "\u0000  Casa   familiar  ",
+    }));
+    expect(item).toEqual({
+      contentId: "8001_6001",
+      contentName: "Casa familiar",
+      contentType: "image",
+      publishedAt: "2026-08-12T14:30:00.000Z",
+      permalink: "https://www.facebook.com/8001/posts/6001/",
+    });
+    const row = normalizeFacebookPostInsights(
+      item,
+      [insight("views", 2_400), insight("total_interactions", 135)],
+      {
+        asset: facebookAsset,
+        apiVersion: "v25.0",
+        extractedAt: "2026-08-30T12:00:00.000Z",
+        runId: "synthetic-facebook",
+      },
+    );
+    expect(row).toMatchObject({
+      accountId: "8001",
+      contentId: "8001_6001",
+      contentName: "Casa familiar",
+      contentType: "image",
+      date: "2026-08-12",
+      level: "content",
+      quality: "complete",
+      metrics: { views: 2_400, interactions: 135 },
+      breakdowns: {
+        source: "meta_facebook_post_insights",
+        platform: "facebook_page",
+      },
+    });
+  });
+
+  it("routes both supported platforms and persists Facebook rows tenant-scoped", async () => {
+    const calls: string[] = [];
+    const client: OrganicReadOnlyMetaClient = {
+      async get<T>(path: string) {
+        calls.push(path);
+        if (path === "/8001/published_posts") return { data: [facebookPost()] } as T;
+        if (path === "/8001_6001/insights") {
+          return { data: [insight("views", 2_400), insight("total_interactions", 135)] } as T;
+        }
+        throw new Error(`unexpected synthetic path ${path}`);
+      },
+    };
+    const context = createService(
+      new MetaPlatformContentReader(client),
+      tenantA,
+      facebookAsset,
+    );
+    await expect(context.ingestion.run(facebookRequest)).resolves.toMatchObject({
+      platform: "facebook_page",
+      pagesRead: 1,
+      contentsRead: 1,
+      rowsWritten: 1,
+    });
+    expect(calls).toEqual(["/8001/published_posts", "/8001_6001/insights"]);
+    await expect(context.historical.list(tenantA, {
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+      level: "content",
+    })).resolves.toMatchObject([{
+      accountId: "8001",
+      contentId: "8001_6001",
+      metrics: { views: 2_400, interactions: 135 },
+    }]);
+    await expect(context.historical.list(tenantB, {
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+    })).resolves.toEqual([]);
+  });
+
+  it("rejects invalid post IDs, unsupported metrics, and cross-tenant access", async () => {
+    expect(() => normalizeFacebookPost(facebookPost({ id: "6001" }))).toThrow("Page-scoped");
+    const item = normalizeFacebookPost(facebookPost());
+    expect(normalizeFacebookPost(facebookPost({
+      permalink_url: "https://attacker.example/post/6001",
+    })).permalink).toBeNull();
+    expect(() => normalizeFacebookPostInsights(item, [insight("post_impressions", 1)], {
+      asset: facebookAsset,
+      apiVersion: "v25.0",
+      extractedAt: "2026-08-30T12:00:00.000Z",
+      runId: "synthetic-facebook",
+    })).toThrow("unsupported metric");
+
+    const client: OrganicReadOnlyMetaClient = { async get<T>() { return { data: [] } as T; } };
+    expect(() => new MetaFacebookPostReader(client).readInsights({
+      asset: facebookAsset,
+      content: { ...item, contentId: "9999_6001" },
+    })).toThrow("Page-scoped");
+
+    const reader = new SyntheticContentReader([{ data: [] }], {});
+    const context = createService(reader, tenantB, facebookAsset);
+    await expect(context.ingestion.run(facebookRequest)).rejects.toThrow("not assigned");
+    expect(reader.pageQueries).toEqual([]);
+    expect(reader.insightQueries).toEqual([]);
   });
 });

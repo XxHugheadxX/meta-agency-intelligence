@@ -114,6 +114,7 @@ describe("Meta organic read-only ingestion", () => {
     expect(calls[1]?.params).toMatchObject({
       metric: ORGANIC_ACCOUNT_METRICS.facebook_page.join(","),
       period: "day",
+      metric_type: "time_series",
     });
     expect(JSON.stringify(calls)).not.toMatch(/access_token|authorization|client_secret/i);
   });
@@ -153,30 +154,42 @@ describe("Meta organic read-only ingestion", () => {
     expect(rows[1]?.breakdowns).toEqual({ source: "meta_organic_insights", platform: "instagram" });
   });
 
-  it("calculates Facebook net followers only when both inputs are available", () => {
+  it("normalizes modern Facebook metrics without inventing reach or impressions", () => {
     const rows = normalizeOrganicInsights([
-      metric("page_impressions", [["2026-08-10T08:00:00+0000", 2_000]]),
-      metric("page_impressions_unique", [["2026-08-10T08:00:00+0000", 1_000]]),
-      metric("page_post_engagements", [["2026-08-10T08:00:00+0000", 90]]),
-      metric("page_views_total", [["2026-08-10T08:00:00+0000", 40]]),
-      metric("page_daily_follows", [["2026-08-10T08:00:00+0000", 8]]),
-      metric("page_daily_unfollows", [["2026-08-10T08:00:00+0000", 3]]),
+      metric("views", [
+        ["2026-08-10T08:00:00+0000", 2_000],
+        ["2026-08-11T08:00:00+0000", 2_200],
+      ]),
+      metric("total_interactions", [
+        ["2026-08-10T08:00:00+0000", 90],
+        ["2026-08-11T08:00:00+0000", 100],
+      ]),
+      metric("profile_visits", [
+        ["2026-08-10T08:00:00+0000", 40],
+        ["2026-08-11T08:00:00+0000", 45],
+      ]),
+      metric("follows", [
+        ["2026-08-10T08:00:00+0000", 500],
+        ["2026-08-11T08:00:00+0000", 505],
+      ]),
     ], {
       asset: facebook,
       startDate: "2026-08-10",
-      endDate: "2026-08-10",
+      endDate: "2026-08-11",
       apiVersion: "v25.0",
       extractedAt: "2026-08-30T12:00:00.000Z",
       runId: "synthetic",
     });
 
-    expect(rows[0]?.metrics).toMatchObject({
-      impressions: 2_000,
-      reach: 1_000,
-      interactions: 90,
-      profileVisits: 40,
+    expect(rows[1]?.metrics).toMatchObject({
+      views: 2_200,
+      interactions: 100,
+      profileVisits: 45,
+      followerCount: 505,
       newFollowers: 5,
     });
+    expect(rows[1]?.metrics.reach).toBeUndefined();
+    expect(rows[1]?.metrics.impressions).toBeUndefined();
   });
 
   it("authorizes the tenant before reading, persists idempotently, and isolates storage", async () => {

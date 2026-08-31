@@ -19,7 +19,7 @@ OIDC del scheduler + payload firmado
   de iniciar la ingesta.
 - `MetaAgencyReportingRuntime` conecta la ingesta con histórico, reporting,
   Excel y entrega del artefacto. Ejecuta primero Ads, luego métricas de cuenta
-  para Page/Instagram y finalmente contenido Instagram; el workbook sólo se
+  para Page/Instagram y finalmente contenido Facebook/Instagram; el workbook sólo se
   crea cuando las ingestas configuradas terminan correctamente.
 - El workbook de cada job queda limitado a su cuenta Ads y a sus activos
   orgánicos asociados. Otras cuentas pueden compartir el histórico del

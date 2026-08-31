@@ -1,6 +1,6 @@
 import type { MetaApiResponse } from "../../meta/types/common.js";
 import type { HistoricalMetricInput, ReportingScope } from "../historical-data/index.js";
-import type { OrganicAsset, OrganicInsightRecord } from "./organic-types.js";
+import type { OrganicAsset, OrganicInsightRecord, OrganicPlatform } from "./organic-types.js";
 
 export type OrganicContentType = "image" | "video" | "reel" | "carousel" | "story" | "unknown";
 
@@ -11,6 +11,10 @@ export interface OrganicContentRecord {
   readonly media_product_type?: string;
   readonly timestamp?: string;
   readonly permalink?: string;
+  readonly message?: string;
+  readonly created_time?: string;
+  readonly permalink_url?: string;
+  readonly status_type?: string;
   readonly [key: string]: unknown;
 }
 
@@ -52,7 +56,7 @@ export interface OrganicContentIngestionRequest {
 
 export interface OrganicContentIngestionResult {
   readonly scope: ReportingScope;
-  readonly platform: "instagram";
+  readonly platform: OrganicPlatform;
   readonly assetId: string;
   readonly startDate: string;
   readonly endDate: string;

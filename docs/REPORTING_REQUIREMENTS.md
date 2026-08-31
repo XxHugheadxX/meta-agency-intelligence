@@ -39,6 +39,12 @@ No todas las métricas están disponibles para todo tipo de cuenta, placement,
 objetivo o versión de API. El reporte debe mostrar `N/D` y una razón de calidad,
 no convertir datos ausentes en cero.
 
+Para Facebook orgánico, `views` representa vistas según la definición vigente
+de Meta y no se reutiliza como alcance ni impresiones. En contenido post-level
+se conservan `views` e interacciones cuando estén disponibles; alcance, clics u
+otras métricas retiradas permanecen `N/D` hasta que un contrato oficial las
+exponga nuevamente.
+
 ## Definiciones calculadas
 
 - `CTR = clics relevantes / impresiones × 100`.
@@ -140,4 +146,3 @@ requieren `ads_management`.
 - El workbook abre sin errores y sus fórmulas/gráficos pasan revisión visual.
 - Las recomendaciones citan evidencia y nunca se presentan como cambios ya
   aplicados.
-

@@ -10,7 +10,7 @@ import {
   InMemoryIngestionAssetPolicy,
   InMemoryOrganicAssetPolicy,
   MetaAdsInsightsReader,
-  MetaInstagramContentReader,
+  MetaPlatformContentReader,
   MetaOrganicInsightsReader,
   type IngestionCheckpointRepository,
   type ReadOnlyMetaClient,
@@ -62,7 +62,7 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
         this.now,
       ),
       new AgencyOrganicContentIngestionService(
-        new MetaInstagramContentReader(client),
+        new MetaPlatformContentReader(client),
         this.historicalData,
         organicPolicy,
         this.now,
@@ -105,22 +105,18 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
             apiVersion: job.apiVersion,
             runId: `${job.jobId}:organic:${asset.platform}:${asset.assetId}`,
           })),
-          contentIngestions: (connection.organicAssets ?? [])
-            .filter((asset) => asset.platform === "instagram")
-            .map((asset) => ({
-              scope: connection.scope,
-              asset,
-              startDate: job.startDate,
-              endDate: job.endDate,
-              apiVersion: job.apiVersion,
-              runId: `${job.jobId}:content:${asset.assetId}`,
-            })),
+          contentIngestions: (connection.organicAssets ?? []).map((asset) => ({
+            scope: connection.scope,
+            asset,
+            startDate: job.startDate,
+            endDate: job.endDate,
+            apiVersion: job.apiVersion,
+            runId: `${job.jobId}:content:${asset.platform}:${asset.assetId}`,
+          })),
           reportSourceAccountIds: {
             paid: [connection.account.accountId],
             organicAccount: (connection.organicAssets ?? []).map(({ assetId }) => assetId),
-            content: (connection.organicAssets ?? [])
-              .filter(({ platform }) => platform === "instagram")
-              .map(({ assetId }) => assetId),
+            content: (connection.organicAssets ?? []).map(({ assetId }) => assetId),
           },
           period: {
             kind: job.reportKind,

@@ -65,9 +65,13 @@ checkpoints monotónicos, replay idempotente y aislamiento probado con datos
 sintéticos. La rama MVP incorpora lectores account-level GET-only para Page
 Insights e Instagram Insights, normalización diaria, raw sanitizado y
 aislamiento tenant-scoped con fixtures sintéticos. La ingesta orgánica por
-contenido de Instagram añade discovery paginado, snapshots lifetime y nivel
-histórico separado. Facebook post-level, los bindings de producción y los
-contract tests con una Meta Test App siguen pendientes.
+contenido de Instagram y publicaciones de Facebook añade discovery paginado,
+snapshots lifetime y nivel histórico separado. Facebook usa las métricas
+modernas `views` y `total_interactions`, sin convertir views en alcance o
+impresiones. Los bindings de producción y contract tests con una Meta Test App
+siguen pendientes.
+El contrato y su gate de verificación están documentados en
+`META_ORGANIC_API_CONTRACT.md`.
 
 La rama `feature/firestore-ingestion-integration` añade persistencia
 transaccional, checkpoints monotónicos ante concurrencia y una suite contra
@@ -133,10 +137,10 @@ dead-letter sin payload, firma o autorización. Faltan aprovisionar y validar
 bucket/IAM/CMEK e identidades reales. El código ya incluye trigger OIDC,
 fan-out Firestore, firma KMS, publicación Pub/Sub y recepción push; falta crear
 la cola durable y DLQ en staging y ensayar la reanudación operativa. El runtime
-del job ya compone Ads, orgánico account-level y contenido Instagram antes del
-Excel. Cada activo orgánico requiere un binding explícito a la cuenta Ads y la
-intersección con `allowedAssetIds`; así se evita repetir todos los activos en
-cada uno de los aproximadamente 20 jobs.
+del job ya compone Ads, orgánico account-level y contenido de Facebook e
+Instagram antes del Excel. Cada activo orgánico requiere un binding explícito a
+la cuenta Ads y la intersección con `allowedAssetIds`; así se evita repetir todos
+los activos en cada uno de los aproximadamente 20 jobs.
 
 El artefacto producido por cada job queda limitado a esa cuenta Ads y a sus
 activos orgánicos asociados, evitando resultados parciales contaminados por
@@ -207,8 +211,8 @@ Orden recomendado:
 2. Aprovisionar el bucket GCS privado y validar IAM, CMEK, lifecycle y descarga
    proxy en staging con archivos sintéticos.
 3. Ejecutar contract tests en una Meta test app sin cuentas reales.
-4. Añadir Facebook post-level y validar todos los lectores orgánicos contra una
-   Meta Test App.
+4. Validar todos los lectores orgánicos, incluido Facebook post-level, contra
+   una Meta Test App.
 5. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
    claves y documentos ficticios ya está automatizado.
 6. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya

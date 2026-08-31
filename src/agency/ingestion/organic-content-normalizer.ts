@@ -1,5 +1,8 @@
 import type { MetricValuesInput } from "../historical-data/index.js";
-import { INSTAGRAM_CONTENT_METRICS } from "./organic-content-reader.js";
+import {
+  FACEBOOK_POST_METRICS,
+  INSTAGRAM_CONTENT_METRICS,
+} from "./organic-content-reader.js";
 import type {
   NormalizeOrganicContentContext,
   OrganicContentHistoricalInput,
@@ -31,21 +34,18 @@ function sanitizeRaw(value: unknown, depth = 0): unknown {
   return value;
 }
 
-function cleanContentName(value: unknown, contentId: string): string {
-  if (typeof value !== "string") return `Instagram ${contentId}`;
+function cleanContentName(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
   const clean = value.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim();
   if (SENSITIVE_VALUE.test(clean)) return "[REDACTED CONTENT]";
-  return clean ? clean.slice(0, 160) : `Instagram ${contentId}`;
+  return clean ? clean.slice(0, 160) : fallback;
 }
 
-function safePermalink(value: unknown): string | null {
+function safePermalink(value: unknown, allowedHosts: ReadonlySet<string>): string | null {
   if (typeof value !== "string" || value.length > 2_048) return null;
   try {
     const url = new URL(value);
-    if (
-      url.protocol !== "https:" ||
-      (url.hostname !== "instagram.com" && url.hostname !== "www.instagram.com")
-    ) {
+    if (url.protocol !== "https:" || !allowedHosts.has(url.hostname)) {
       return null;
     }
     url.search = "";
@@ -67,9 +67,9 @@ function contentType(record: OrganicContentRecord): OrganicContentType {
   return "unknown";
 }
 
-function publishedAt(value: unknown): string {
+function publishedAt(value: unknown, source: string): string {
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
-    throw new Error("Instagram content timestamp must be a valid ISO timestamp");
+    throw new Error(`${source} timestamp must be a valid ISO timestamp`);
   }
   return new Date(value).toISOString();
 }
@@ -80,20 +80,43 @@ export function normalizeInstagramContent(record: OrganicContentRecord): Organic
   }
   return {
     contentId: record.id,
-    contentName: cleanContentName(record.caption, record.id),
+    contentName: cleanContentName(record.caption, `Instagram ${record.id}`),
     contentType: contentType(record),
-    publishedAt: publishedAt(record.timestamp),
-    permalink: safePermalink(record.permalink),
+    publishedAt: publishedAt(record.timestamp, "Instagram content"),
+    permalink: safePermalink(record.permalink, new Set(["instagram.com", "www.instagram.com"])),
   };
 }
 
-function insightValue(record: OrganicInsightRecord): number {
+function facebookContentType(value: unknown): OrganicContentType {
+  if (typeof value !== "string") return "unknown";
+  if (value === "added_photos") return "image";
+  if (value === "added_video") return "video";
+  return "unknown";
+}
+
+export function normalizeFacebookPost(record: OrganicContentRecord): OrganicContentItem {
+  if (!/^\d{1,32}_\d{1,32}$/.test(record.id)) {
+    throw new Error("Facebook post response contains an invalid Page-scoped postId");
+  }
+  return {
+    contentId: record.id,
+    contentName: cleanContentName(record.message, `Facebook ${record.id}`),
+    contentType: facebookContentType(record.status_type),
+    publishedAt: publishedAt(record.created_time, "Facebook post"),
+    permalink: safePermalink(
+      record.permalink_url,
+      new Set(["facebook.com", "www.facebook.com", "m.facebook.com"]),
+    ),
+  };
+}
+
+function insightValue(record: OrganicInsightRecord, source: string): number {
   const candidate = Array.isArray(record.values) && record.values.length === 1
     ? record.values[0]?.value
     : record.total_value?.value;
   const parsed = typeof candidate === "number" ? candidate : Number(candidate);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`Instagram content metric ${record.name} must contain one non-negative lifetime value`);
+    throw new Error(`${source} metric ${record.name} must contain one non-negative lifetime value`);
   }
   return parsed;
 }
@@ -112,7 +135,7 @@ export function normalizeInstagramContentInsights(
     if (values.has(record.name)) {
       throw new Error(`Instagram content response repeated metric ${record.name}`);
     }
-    const value = insightValue(record);
+    const value = insightValue(record, "Instagram content");
     values.set(record.name, value);
     raw[record.name] = sanitizeRaw(record);
   }
@@ -157,6 +180,63 @@ export function normalizeInstagramContentInsights(
     rawData: {
       source: "meta_organic_content_insights",
       platform: "instagram",
+      runId: context.runId,
+      publishedAt: content.publishedAt,
+      permalink: content.permalink,
+      missingMetrics,
+      metrics: raw,
+    },
+  };
+}
+
+export function normalizeFacebookPostInsights(
+  content: OrganicContentItem,
+  records: readonly OrganicInsightRecord[],
+  context: NormalizeOrganicContentContext,
+): OrganicContentHistoricalInput {
+  const values = new Map<string, number>();
+  const raw: Record<string, unknown> = {};
+  for (const record of records) {
+    if (!FACEBOOK_POST_METRICS.includes(record.name as typeof FACEBOOK_POST_METRICS[number])) {
+      throw new Error(`Facebook post response returned unsupported metric ${record.name}`);
+    }
+    if (values.has(record.name)) {
+      throw new Error(`Facebook post response repeated metric ${record.name}`);
+    }
+    const value = insightValue(record, "Facebook post");
+    values.set(record.name, value);
+    raw[record.name] = sanitizeRaw(record);
+  }
+
+  const missingMetrics = FACEBOOK_POST_METRICS.filter((name) => !values.has(name));
+  return {
+    accountId: context.asset.assetId,
+    accountName: context.asset.assetName,
+    contentId: content.contentId,
+    contentName: content.contentName,
+    contentType: content.contentType,
+    agentId: context.asset.agentId ?? null,
+    agentName: context.asset.agentName ?? null,
+    date: content.publishedAt.slice(0, 10),
+    level: "content",
+    metrics: {
+      views: values.get("views"),
+      interactions: values.get("total_interactions"),
+    },
+    currency: context.asset.currency,
+    timezone: context.asset.timezone,
+    attributionWindow: null,
+    breakdowns: {
+      source: "meta_facebook_post_insights",
+      platform: "facebook_page",
+    },
+    apiVersion: context.apiVersion,
+    schemaVersion: "meta-facebook-post-v1",
+    extractedAt: context.extractedAt,
+    quality: missingMetrics.length === 0 ? "complete" : "partial",
+    rawData: {
+      source: "meta_facebook_post_insights",
+      platform: "facebook_page",
       runId: context.runId,
       publishedAt: content.publishedAt,
       permalink: content.permalink,
