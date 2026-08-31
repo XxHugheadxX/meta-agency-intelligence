@@ -3,3 +3,7 @@ export * from "./concurrency-gate.js";
 export * from "./dead-letter.js";
 export * from "./pubsub-envelope.js";
 export * from "./reporting-fan-out.js";
+export * from "./cloud-kms-signer.js";
+export * from "./pubsub-publisher.js";
+export * from "./reporting-scheduler-config.js";
+export * from "./reporting-scheduler-bootstrap.js";

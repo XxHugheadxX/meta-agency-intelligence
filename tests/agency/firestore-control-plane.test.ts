@@ -65,6 +65,44 @@ function fakeFirestore(input: {
   } as unknown as Firestore;
 }
 
+function scheduledAccountsFirestore(input: {
+  workspace?: Record<string, unknown>;
+  accounts: readonly { id: string; data: Record<string, unknown> }[];
+}) {
+  const where = vi.fn();
+  const select = vi.fn();
+  const limit = vi.fn();
+  const query = {
+    where,
+    select,
+    limit,
+    get: vi.fn().mockResolvedValue({
+      docs: input.accounts.map((account) => ({
+        id: account.id,
+        data: () => structuredClone(account.data),
+      })),
+    }),
+  };
+  where.mockReturnValue(query);
+  select.mockReturnValue(query);
+  limit.mockReturnValue(query);
+  const workspaceDocument = {
+    get: vi.fn().mockResolvedValue({
+      exists: input.workspace !== undefined,
+      data: () => input.workspace,
+    }),
+    collection: vi.fn(() => query),
+  };
+  const db = {
+    collection: vi.fn(() => ({
+      doc: vi.fn(() => ({
+        collection: vi.fn(() => ({ doc: vi.fn(() => workspaceDocument) })),
+      })),
+    })),
+  } as unknown as Firestore;
+  return { db, limit, select, where };
+}
+
 const workspace = {
   schemaVersion: 1,
   ...tenantA,
@@ -117,6 +155,52 @@ describe("Firestore agency control plane", () => {
         account: { ...account, accessToken: "forbidden" },
       })).get(tenantA, "act_100"),
     ).rejects.toThrow("unsupported fields");
+  });
+
+  it("lists only projected active accounts under the verified tenant workspace", async () => {
+    const source = scheduledAccountsFirestore({
+      workspace,
+      accounts: [
+        {
+          id: "act_100",
+          data: {
+            schemaVersion: 1,
+            ...tenantA,
+            accountId: "act_100",
+            active: true,
+          },
+        },
+      ],
+    });
+    const repository = new FirestoreAgencyAccountConnectionRepository(source.db);
+    await expect(repository.listActive(tenantA)).resolves.toEqual([
+      { ...tenantA, accountId: "act_100" },
+    ]);
+    expect(source.where).toHaveBeenCalledWith("active", "==", true);
+    expect(source.select).toHaveBeenCalledWith(
+      "accountId", "active", "schemaVersion", "tenantId", "workspaceId",
+    );
+    expect(source.limit).toHaveBeenCalledWith(101);
+  });
+
+  it("fails closed when a scheduled account crosses its tenant path", async () => {
+    const source = scheduledAccountsFirestore({
+      workspace,
+      accounts: [
+        {
+          id: "act_100",
+          data: {
+            schemaVersion: 1,
+            tenantId: "other-tenant",
+            workspaceId: tenantA.workspaceId,
+            accountId: "act_100",
+            active: true,
+          },
+        },
+      ],
+    });
+    const repository = new FirestoreAgencyAccountConnectionRepository(source.db);
+    await expect(repository.listActive(tenantA)).rejects.toThrow("identity");
   });
 
   it("creates append-only tenant-scoped audit events with a Firestore timestamp", async () => {

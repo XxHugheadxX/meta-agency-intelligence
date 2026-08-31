@@ -10,8 +10,19 @@ recurso Google Cloud ni se ha iniciado sesión en un proyecto real.
 `ReportingJobFanOut` prepara un job determinista por cuenta activa, valida que
 todas pertenezcan al tenant/workspace solicitado, firma el JSON mediante una
 interfaz inyectable y publica solamente `{ payload, signature }`. El adaptador
-real de cuentas, Cloud KMS y Pub/Sub continúa pendiente para staging; una clave
-privada no debe almacenarse en variables de entorno ni en Firestore.
+Firestore de cuentas activas verifica primero el workspace, proyecta únicamente
+identidad y estado, y nunca carga `tokenName` ni credenciales. El firmador KMS
+envía sólo el digest SHA-256, usa el token efímero de la service account y valida
+nombre de versión, `verifiedDigestCrc32c` y CRC32C de la firma. El adaptador de
+Pub/Sub publica un único envelope en un topic fijado, usa el token efímero sólo
+en el header y valida el ACK. La creación de recursos e IAM continúa pendiente
+para staging; una clave privada no debe almacenarse en variables de entorno ni
+en Firestore.
+
+El bootstrap permanece deshabilitado salvo
+`AGENCY_REPORTING_SCHEDULER_ENABLED=true` y exige modo read-only, multi-tenant,
+Firestore, una versión KMS completa y un topic Pub/Sub completo. Los nombres de
+recursos se validan antes de inicializar Firestore.
 
 ## Topología propuesta
 
@@ -124,5 +135,5 @@ leases, circuit breakers y límites internos siguen siendo obligatorios.
 5. Forzar duplicados, 429, firma inválida y agotamiento hasta DLQ.
 6. Confirmar ausencia de tokens y payloads en logs y dead-letter metadata.
 7. Ejecutar carga equivalente a veinte cuentas antes de cualquier cuenta real.
-8. Implementar el signer con Cloud KMS y limitar `cloudkms.cryptoKeyVersions.useToSign`
-   a la identidad dedicada del fan-out.
+8. Aprovisionar una versión KMS `RSA_SIGN_PKCS1_2048_SHA256` y limitar
+   `cloudkms.cryptoKeyVersions.useToSign` a la identidad dedicada del fan-out.

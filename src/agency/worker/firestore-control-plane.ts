@@ -9,6 +9,10 @@ import type {
   AgencyAccountConnectionRepository,
   TenantWorkspacePolicy,
 } from "./connection-resolver.js";
+import type {
+  ScheduledReportingAccount,
+  ScheduledReportingAccountSource,
+} from "../scheduler/index.js";
 import type { IngestionAuditEvent, IngestionAuditSink } from "./types.js";
 
 const WORKSPACE_FIELDS = ["active", "schemaVersion", "tenantId", "workspaceId"];
@@ -16,6 +20,10 @@ const ACCOUNT_FIELDS = [
   "accountId", "accountName", "active", "agentId", "agentName", "currency",
   "schemaVersion", "tenantId", "timezone", "tokenName", "workspaceId",
 ];
+const SCHEDULE_ACCOUNT_FIELDS = [
+  "accountId", "active", "schemaVersion", "tenantId", "workspaceId",
+] as const;
+const MAX_SCHEDULE_ACCOUNT_RESULTS = 101;
 
 export interface ProvisionAgencyWorkspaceInput extends ReportingScope {
   readonly active: boolean;
@@ -202,7 +210,7 @@ export class FirestoreAgencyControlPlaneProvisioner {
 }
 
 export class FirestoreAgencyAccountConnectionRepository
-implements AgencyAccountConnectionRepository {
+implements AgencyAccountConnectionRepository, ScheduledReportingAccountSource {
   constructor(private readonly db: Firestore) {}
 
   async get(scope: ReportingScope, accountId: string): Promise<AgencyAccountConnection | null> {
@@ -244,6 +252,41 @@ implements AgencyAccountConnectionRepository {
       tokenName: data.tokenName,
       active: data.active,
     };
+  }
+
+  async listActive(scope: ReportingScope): Promise<readonly ScheduledReportingAccount[]> {
+    const workspace = workspaceReference(this.db, scope);
+    const workspaceSnapshot = await workspace.get();
+    if (!workspaceSnapshot.exists) throw new Error("Workspace is not assigned to this tenant");
+    assertWorkspaceDocument(scope, workspaceSnapshot.data(), true);
+
+    const snapshot = await workspace.collection("account_connections")
+      .where("active", "==", true)
+      .select(...SCHEDULE_ACCOUNT_FIELDS)
+      .limit(MAX_SCHEDULE_ACCOUNT_RESULTS)
+      .get();
+    return snapshot.docs.map((document) => {
+      const data = document.data();
+      if (!data || !exactKeys(data, SCHEDULE_ACCOUNT_FIELDS)) {
+        throw new Error("Stored scheduled account has unsupported fields");
+      }
+      if (
+        data.schemaVersion !== 1 ||
+        data.active !== true ||
+        data.tenantId !== scope.tenantId ||
+        data.workspaceId !== scope.workspaceId ||
+        data.accountId !== document.id
+      ) {
+        throw new Error("Stored scheduled account identity is invalid");
+      }
+      safeIdentifier(data.accountId, "accountId");
+      if (!/^act_\d+$/.test(data.accountId)) throw new Error("accountId is invalid");
+      return {
+        tenantId: data.tenantId,
+        workspaceId: data.workspaceId,
+        accountId: data.accountId,
+      };
+    });
   }
 }
 
