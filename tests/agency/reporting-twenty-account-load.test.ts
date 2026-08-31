@@ -91,6 +91,10 @@ describe("reporting load for the twenty-account pilot", () => {
     const runtimeAttempts = new Map<string, number>();
     let activeRuntime = 0;
     let peakRuntime = 0;
+    let releaseInitialRuntime = () => {};
+    const initialRuntimeGate = new Promise<void>((resolve) => {
+      releaseInitialRuntime = resolve;
+    });
     const runtime: ReportingRuntime = {
       async run(_connection, current) {
         const attempt = (runtimeAttempts.get(current.accountId) ?? 0) + 1;
@@ -98,6 +102,7 @@ describe("reporting load for the twenty-account pilot", () => {
         activeRuntime += 1;
         peakRuntime = Math.max(peakRuntime, activeRuntime);
         try {
+          await initialRuntimeGate;
           await wait(4);
           if (current.accountId === "act_007" && attempt === 1) {
             throw new Error("synthetic transient storage failure");
@@ -184,6 +189,7 @@ describe("reporting load for the twenty-account pilot", () => {
       ReportingBackpressureError,
     );
     backpressureCount += 1;
+    releaseInitialRuntime();
     await load;
 
     expect(completed).toHaveLength(20);

@@ -33,6 +33,7 @@ export interface ReportingBatchRepository {
   complete(scope: ReportingScope, claim: ReportingBatchClaim, artifactId: string): Promise<boolean>;
   release(scope: ReportingScope, claim: ReportingBatchClaim): Promise<void>;
   get(scope: ReportingScope, batchId: string): Promise<ReportingBatchStatus | null>;
+  listRecent(scope: ReportingScope, limit: number): Promise<readonly ReportingBatchStatus[]>;
 }
 
 export interface ReportingBatchStatus {
@@ -147,6 +148,16 @@ export class InMemoryReportingBatchRepository implements ReportingBatchRepositor
     const state = this.states.get(this.key(scope, batchId));
     return state ? publicStatus(state) : null;
   }
+
+  async listRecent(scope: ReportingScope, limit: number): Promise<readonly ReportingBatchStatus[]> {
+    assertReportingScope(scope);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("Invalid reporting batch list limit");
+    return [...this.states.values()]
+      .filter((state) => state.tenantId === scope.tenantId && state.workspaceId === scope.workspaceId)
+      .sort((left, right) => right.startDate.localeCompare(left.startDate) || left.batchId.localeCompare(right.batchId))
+      .slice(0, limit)
+      .map(publicStatus);
+  }
 }
 
 function firestoreState(scope: ReportingScope, batchId: string, data: unknown): BatchState {
@@ -238,6 +249,17 @@ export class FirestoreReportingBatchRepository implements ReportingBatchReposito
     if (!/^batch-[a-f0-9]{40}$/.test(batchId)) return null;
     const snapshot = await this.reference(scope, batchId).get();
     return snapshot.exists ? publicStatus(firestoreState(scope, batchId, snapshot.data())) : null;
+  }
+
+  async listRecent(scope: ReportingScope, limit: number): Promise<readonly ReportingBatchStatus[]> {
+    assertReportingScope(scope);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("Invalid reporting batch list limit");
+    const snapshot = await this.db.collection("agency_tenants").doc(scope.tenantId)
+      .collection("workspaces").doc(scope.workspaceId).collection(COLLECTION)
+      .orderBy("startDate", "desc").limit(limit).get();
+    return snapshot.docs.map((document) => publicStatus(
+      firestoreState(scope, document.id, document.data()),
+    ));
   }
 }
 

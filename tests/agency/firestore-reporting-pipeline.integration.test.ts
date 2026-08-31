@@ -168,5 +168,8 @@ describeEmulator("Firestore read-only reporting pipeline integration", () => {
     await expect(batches.complete(scope, completed.claim, "d".repeat(64))).resolves.toBe(true);
     await expect(batches.record(scope, { ...common, accountId: "act_600" }))
       .resolves.toEqual({ status: "complete" });
+    await expect(batches.listRecent(scope, 20)).resolves.toEqual([
+      expect.objectContaining({ batchId: common.batchId, status: "complete" }),
+    ]);
   });
 });

@@ -62,13 +62,20 @@ describe("agency reporting batch coordinator", () => {
   });
 
   it("keeps identical batch IDs isolated by tenant and workspace", async () => {
+    const batches = new InMemoryReportingBatchRepository();
     const coordinator = new AgencyReportingBatchCoordinator(
-      new InMemoryReportingBatchRepository(),
+      batches,
       new InMemoryHistoricalDataRepository(),
       new InMemoryReportArtifactStore(),
     );
     await expect(coordinator.record(job("act_100", tenantA))).resolves.toBeNull();
     await expect(coordinator.record(job("act_100", tenantB))).resolves.toBeNull();
+    await expect(batches.listRecent(tenantA, 20)).resolves.toHaveLength(1);
+    await expect(batches.listRecent(tenantB, 20)).resolves.toHaveLength(1);
+    await expect(batches.listRecent(
+      { tenantId: tenantA.tenantId, workspaceId: "another-workspace" },
+      20,
+    )).resolves.toEqual([]);
   });
 
   it("rejects a changed membership for an existing tenant-scoped batch", async () => {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createReportingBatchStatusHandler } from "../../src/agency/index.js";
+import {
+  createReportingBatchListHandler,
+  createReportingBatchStatusHandler,
+} from "../../src/agency/index.js";
 import { tenantA } from "./fixtures.js";
 
 const batchId = `batch-${"a".repeat(40)}`;
@@ -94,5 +97,44 @@ describe("reporting batch status handler", () => {
     );
     await mismatch(request(), mismatchResponse as never, vi.fn());
     expect(mismatchResponse.status).toHaveBeenCalledWith(503);
+  });
+});
+
+describe("reporting batch list handler", () => {
+  it("requires tenant claims and validates the bounded limit before storage access", async () => {
+    const listRecent = vi.fn();
+    const handler = createReportingBatchListHandler({ listRecent });
+    const unauthorized = responseHarness();
+    await handler({ auth: null, query: {} } as never, unauthorized as never, vi.fn());
+    expect(unauthorized.status).toHaveBeenCalledWith(401);
+    const invalid = responseHarness();
+    await handler({ auth: { extra: tenantA }, query: { limit: "51" } } as never, invalid as never, vi.fn());
+    expect(invalid.status).toHaveBeenCalledWith(400);
+    expect(listRecent).not.toHaveBeenCalled();
+  });
+
+  it("lists recent tenant-scoped report progress with relative detail paths", async () => {
+    const listRecent = vi.fn().mockResolvedValue([{
+      batchId, status: "complete", reportKind: "week",
+      startDate: "2026-08-24", endDate: "2026-08-30",
+      completedAccounts: 20, expectedAccounts: 20, artifactId: "b".repeat(64),
+    }]);
+    const handler = createReportingBatchListHandler({ listRecent });
+    const response = responseHarness();
+    await handler(
+      { auth: { extra: tenantA }, query: { limit: "10" } } as never,
+      response as never,
+      vi.fn(),
+    );
+    expect(listRecent).toHaveBeenCalledWith(tenantA, 10);
+    const body = response.json.mock.calls[0][0];
+    expect(body.reports[0]).toEqual({
+      batchId, status: "complete",
+      period: { kind: "week", startDate: "2026-08-24", endDate: "2026-08-30" },
+      progress: { completedAccounts: 20, expectedAccounts: 20 },
+      detailPath: `/agency/reporting/batches/${batchId}`,
+    });
+    expect(JSON.stringify(body)).not.toMatch(/artifactId|tenantId|workspaceId|accountIds|objectKey|https?:\/\//);
+    expect(response.setHeader).toHaveBeenCalledWith("Cache-Control", "private, no-store, max-age=0");
   });
 });

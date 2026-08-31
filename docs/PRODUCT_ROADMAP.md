@@ -150,6 +150,8 @@ persiste completaciones tenant-scoped y la última cuenta genera el Excel
 consolidado mediante un claim con fencing, expiración y replay idempotente.
 El estado y la descarga del consolidado ya se exponen mediante endpoints MCP
 autenticados y tenant-scoped, sin revelar coordenadas de almacenamiento.
+El frontend puede descubrir hasta 50 batches recientes mediante un listado
+protegido, sin necesitar conocer previamente sus IDs.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.

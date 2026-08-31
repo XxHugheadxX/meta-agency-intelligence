@@ -46,6 +46,9 @@ OIDC del scheduler + payload firmado
   sólo período, conteo de progreso y metadata segura del consolidado. La ruta de
   descarga es relativa y vuelve a pasar por `/agency/reports/:artifactId`; nunca
   expone object keys, URLs GCS, cuentas del batch, hashes internos ni tokens.
+- `GET /agency/reporting/batches?limit=20` lista hasta 50 períodos recientes del
+  workspace autenticado. Devuelve sólo estado, progreso y una ruta relativa al
+  detalle; no incluye IDs de cuenta ni coordenadas del artefacto.
 
 La respuesta del worker contiene únicamente ID opaco, nombre, hash, tamaño,
 periodo y caducidad. No contiene bytes del archivo, token Meta, object key ni

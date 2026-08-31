@@ -70,6 +70,7 @@ import {
   createReportingJobEndpointDependencies,
   createReportingJobHttpRouter,
   createReportingBatchStatusHandler,
+  createReportingBatchListHandler,
   FirestoreReportingBatchRepository,
   type ReportingJobEndpointDependencies,
 } from "../agency/worker/index.js";
@@ -848,6 +849,14 @@ export async function startHttpTransport(
     const reportArtifacts = new FirestoreReportArtifactStore(
       getFirestore(),
       new GcsReportObjectStore(reportBucket),
+    );
+    app.get(
+      "/agency/reporting/batches",
+      createRateLimiter(30, 60 * 1000),
+      auth,
+      createReportingBatchListHandler(
+        new FirestoreReportingBatchRepository(getFirestore()),
+      ),
     );
     app.get(
       "/agency/reporting/batches/:batchId",
