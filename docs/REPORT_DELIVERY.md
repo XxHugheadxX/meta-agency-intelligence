@@ -21,6 +21,10 @@ OIDC del scheduler + payload firmado
   Excel y entrega del artefacto. Ejecuta primero Ads, luego métricas de cuenta
   para Page/Instagram y finalmente contenido Instagram; el workbook sólo se
   crea cuando las ingestas configuradas terminan correctamente.
+- El workbook de cada job queda limitado a su cuenta Ads y a sus activos
+  orgánicos asociados. Otras cuentas pueden compartir el histórico del
+  workspace, pero no se incorporan accidentalmente a ese artefacto. El futuro
+  consolidado de agencia será un artefacto separado al cerrar el batch.
 - Los contadores `rowsWritten` y `pagesRead` del resultado suman Ads, orgánico
   account-level y contenido. Antes de agregarlos, el worker vuelve a validar que
   todos los resultados pertenezcan al tenant/workspace y ventana del job.

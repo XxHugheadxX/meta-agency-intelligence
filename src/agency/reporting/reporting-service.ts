@@ -77,6 +77,28 @@ export interface CreateUnifiedReportInput {
   period: ReportPeriod;
   paidGranularity?: PaidHistoricalMetricLevel;
   rankBy?: MetricName;
+  sourceAccountIds?: AgencyReportSourceAccountIds;
+}
+
+export interface AgencyReportSourceAccountIds {
+  readonly paid?: readonly string[];
+  readonly organicAccount?: readonly string[];
+  readonly content?: readonly string[];
+}
+
+function validatedAccountIds(
+  values: readonly string[] | undefined,
+  field: string,
+): readonly string[] | undefined {
+  if (values === undefined) return undefined;
+  if (values.length > 100) throw new Error(`${field} cannot exceed 100 account IDs`);
+  if (values.some((value) => !/^(?:act_)?\d{1,32}$/.test(value))) {
+    throw new Error(`${field} contains an invalid Meta account or asset ID`);
+  }
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${field} cannot contain duplicate IDs`);
+  }
+  return [...values].sort();
 }
 
 function emptyMetrics(): MetricValues {
@@ -258,10 +280,11 @@ async function reportDataset(
   period: ReportPeriod,
   before: ReportPeriod,
   granularity: HistoricalMetricLevel,
+  accountIds?: readonly string[],
 ): Promise<AgencyReportDataset> {
   const [currentRows, previousRows] = await Promise.all([
-    historicalData.list(scope, { ...period, level: granularity }),
-    historicalData.list(scope, { ...before, level: granularity }),
+    historicalData.list(scope, { ...period, level: granularity, accountIds }),
+    historicalData.list(scope, { ...before, level: granularity, accountIds }),
   ]);
   const current = aggregateRows(currentRows);
   const previous = aggregateRows(previousRows);
@@ -308,10 +331,39 @@ export class AgencyReportingService {
   ): Promise<AgencyReport> {
     const paidGranularity = input.paidGranularity ?? "ad";
     const before = previousPeriod(input.period);
+    const sourceAccountIds = input.sourceAccountIds ? {
+      paid: validatedAccountIds(input.sourceAccountIds.paid, "paid source filter"),
+      organicAccount: validatedAccountIds(
+        input.sourceAccountIds.organicAccount,
+        "organic source filter",
+      ),
+      content: validatedAccountIds(input.sourceAccountIds.content, "content source filter"),
+    } : undefined;
     const [paid, organicAccount, content] = await Promise.all([
-      reportDataset(this.historicalData, scope, input.period, before, paidGranularity),
-      reportDataset(this.historicalData, scope, input.period, before, "organic_account"),
-      reportDataset(this.historicalData, scope, input.period, before, "content"),
+      reportDataset(
+        this.historicalData,
+        scope,
+        input.period,
+        before,
+        paidGranularity,
+        sourceAccountIds?.paid,
+      ),
+      reportDataset(
+        this.historicalData,
+        scope,
+        input.period,
+        before,
+        "organic_account",
+        sourceAccountIds?.organicAccount,
+      ),
+      reportDataset(
+        this.historicalData,
+        scope,
+        input.period,
+        before,
+        "content",
+        sourceAccountIds?.content,
+      ),
     ]);
     const rankBy = input.rankBy ?? "leads";
     return {

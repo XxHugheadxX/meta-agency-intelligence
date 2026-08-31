@@ -17,6 +17,7 @@ import {
 import {
   AgencyReportingService,
   type AgencyReport,
+  type AgencyReportSourceAccountIds,
   type ReportPeriod,
 } from "../reporting/reporting-service.js";
 
@@ -24,6 +25,7 @@ export interface GenerateReadOnlyReportInput {
   readonly ingestion: InsightsIngestionRequest;
   readonly organicIngestions?: readonly OrganicIngestionRequest[];
   readonly contentIngestions?: readonly OrganicContentIngestionRequest[];
+  readonly reportSourceAccountIds?: AgencyReportSourceAccountIds;
   readonly period: ReportPeriod;
   readonly excel?: GenerateExcelReportOptions;
 }
@@ -66,6 +68,7 @@ export class AgencyReadOnlyReportingPipeline {
     const report = await this.reporting.createUnifiedReport(input.ingestion.scope, {
       period: input.period,
       paidGranularity: input.ingestion.level,
+      sourceAccountIds: input.reportSourceAccountIds,
     });
     const excel = this.excel.generate(report, input.excel);
     return { ingestion, organicIngestions, contentIngestions, report, excel };

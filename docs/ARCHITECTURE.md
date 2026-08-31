@@ -43,9 +43,11 @@ resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
 ejecuta Ads Insights dentro de un contexto backend GET-only. Cuando un binding
 de Page/Instagram declara el `reportingAccountId` del job, el mismo worker
 ejecuta también orgánico account-level y contenido Instagram antes de generar
-el workbook. El resolver intersecta binding, cuenta y activos permitidos por el
-token; no asigna activos automáticamente entre las cuentas de la agencia. El
-endpoint interno
+el workbook aislado de esa cuenta. Reporting aplica filtros independientes para
+Ads, orgánico account-level y contenido, por lo que no consume filas de otros
+jobs presentes en el mismo histórico. El resolver intersecta binding, cuenta y
+activos permitidos por el token; no asigna activos automáticamente entre las
+cuentas de la agencia. El endpoint interno
 opt-in autentica Google OIDC antes de parsear el payload firmado. Un trigger OIDC
 separado calcula el último período completo y compone Firestore, firma KMS y
 publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compone

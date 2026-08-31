@@ -115,6 +115,13 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
               apiVersion: job.apiVersion,
               runId: `${job.jobId}:content:${asset.assetId}`,
             })),
+          reportSourceAccountIds: {
+            paid: [connection.account.accountId],
+            organicAccount: (connection.organicAssets ?? []).map(({ assetId }) => assetId),
+            content: (connection.organicAssets ?? [])
+              .filter(({ platform }) => platform === "instagram")
+              .map(({ assetId }) => assetId),
+          },
           period: {
             kind: job.reportKind,
             startDate: job.reportStartDate,

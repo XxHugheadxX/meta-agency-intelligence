@@ -26,6 +26,11 @@ un KPI engañoso.
   `content_name` y `content_type` para auditoría.
 - El gráfico Top contenidos usa `content` cuando existe; no intenta derivarlo de
   alcance account-level.
+- El workbook generado por un job de cuenta filtra Ads por esa cuenta y los
+  datasets orgánicos por sus Page/Instagram asociados. El histórico compartido
+  puede contener otras cuentas sin que sus filas entren al archivo del job.
+- Cada filtro acepta como máximo 100 IDs válidos y sin duplicados. Omitir los
+  filtros conserva el modo consolidado por workspace para un futuro batch.
 
 ## Compatibilidad
 
@@ -37,9 +42,10 @@ pagados para consumidores anteriores.
 
 ## Límites actuales
 
-- Todavía no se ejecutan los tres procesos de ingesta dentro del mismo job; el
-  workbook consume histórico orgánico ya disponible y ejecuta Ads en el job
-  actual.
+- El job ya ejecuta Ads, orgánico account-level y contenido Instagram antes de
+  crear su workbook aislado por cuenta.
+- Falta el coordinador de cierre de batch que espere las ingestas de las
+  aproximadamente 20 cuentas y cree un workbook consolidado de agencia.
 - Facebook post-level sigue pendiente.
 - Los snapshots de contenido se atribuyen a su fecha de publicación y reflejan
   el total lifetime observado en `extractedAt`.

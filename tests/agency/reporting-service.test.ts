@@ -194,4 +194,83 @@ describe("AgencyReportingService", () => {
     expect(report.sources?.content.rawRows).toHaveLength(1);
     expect(report.rawRows).toEqual(report.sources?.paid.rawRows);
   });
+
+  it("filters each unified source independently for an account-scoped workbook", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    for (const accountId of ["act_100", "act_200"]) {
+      await repository.upsert(tenantA, metricFixture({
+        accountId,
+        accountName: accountId === "act_100" ? "Norte" : "Sur",
+        date: "2026-08-10",
+        metrics: { reach: accountId === "act_100" ? 100 : 9_000 },
+      }));
+    }
+    for (const assetId of ["9001", "9002"]) {
+      const common = {
+        accountId: assetId,
+        accountName: assetId === "9001" ? "Instagram Norte" : "Instagram Sur",
+        campaignId: null,
+        campaignName: null,
+        adSetId: null,
+        adSetName: null,
+        adId: null,
+        adName: null,
+        date: "2026-08-10",
+        attributionWindow: null,
+      } as const;
+      await repository.upsert(tenantA, metricFixture({
+        ...common,
+        level: "organic_account",
+        metrics: { reach: assetId === "9001" ? 200 : 8_000 },
+        breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+      }));
+      await repository.upsert(tenantA, metricFixture({
+        ...common,
+        level: "content",
+        contentId: `content-${assetId}`,
+        contentName: `Reel ${assetId}`,
+        contentType: "reel",
+        metrics: { reach: assetId === "9001" ? 300 : 7_000 },
+        breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+      }));
+    }
+
+    const report = await new AgencyReportingService(repository).createUnifiedReport(
+      tenantA,
+      {
+        period: weeklyPeriod("2026-08-12"),
+        sourceAccountIds: {
+          paid: ["act_100"],
+          organicAccount: ["9001"],
+          content: ["9001"],
+        },
+      },
+    );
+
+    expect(report.sources?.paid.current.metrics.reach).toBe(100);
+    expect(report.sources?.organicAccount.current.metrics.reach).toBe(200);
+    expect(report.sources?.content.current.metrics.reach).toBe(300);
+    expect(report.sources?.paid.rawRows.map(({ accountId }) => accountId)).toEqual(["act_100"]);
+    expect(report.sources?.organicAccount.rawRows.map(({ accountId }) => accountId)).toEqual(["9001"]);
+    expect(report.sources?.content.rawRows.map(({ accountId }) => accountId)).toEqual(["9001"]);
+  });
+
+  it("rejects malformed, duplicate, or excessive unified source filters", async () => {
+    const service = new AgencyReportingService(new InMemoryHistoricalDataRepository());
+    const period = weeklyPeriod("2026-08-12");
+    await expect(service.createUnifiedReport(tenantA, {
+      period,
+      sourceAccountIds: { paid: ["act_100", "act_100"] },
+    })).rejects.toThrow("duplicate");
+    await expect(service.createUnifiedReport(tenantA, {
+      period,
+      sourceAccountIds: { organicAccount: ["../../other-workspace"] },
+    })).rejects.toThrow("invalid Meta");
+    await expect(service.createUnifiedReport(tenantA, {
+      period,
+      sourceAccountIds: {
+        content: Array.from({ length: 101 }, (_, index) => String(index + 1)),
+      },
+    })).rejects.toThrow("100 account IDs");
+  });
 });

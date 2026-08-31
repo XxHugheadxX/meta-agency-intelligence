@@ -138,6 +138,12 @@ Excel. Cada activo orgánico requiere un binding explícito a la cuenta Ads y la
 intersección con `allowedAssetIds`; así se evita repetir todos los activos en
 cada uno de los aproximadamente 20 jobs.
 
+El artefacto producido por cada job queda limitado a esa cuenta Ads y a sus
+activos orgánicos asociados, evitando resultados parciales contaminados por
+filas ya ingeridas de otras cuentas del workspace. Sigue pendiente coordinar el
+cierre del batch para generar un único Excel consolidado de agencia cuando
+terminen todas las ingestas del período.
+
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
 - Observabilidad por job/tenant sin PII.

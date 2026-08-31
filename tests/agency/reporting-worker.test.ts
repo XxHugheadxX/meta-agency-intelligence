@@ -14,7 +14,7 @@ import {
   type ReportingRuntime,
   type ResolvedIngestionConnection,
 } from "../../src/agency/index.js";
-import { tenantA, tenantB } from "./fixtures.js";
+import { metricFixture, tenantA, tenantB } from "./fixtures.js";
 
 const job: ReportingJobPayload = {
   ...tenantA,
@@ -135,6 +135,45 @@ describe("agency reporting worker", () => {
       () => Date.parse("2026-08-31T08:00:00.000Z"),
     );
     const historical = new InMemoryHistoricalDataRepository();
+    await historical.upsert(tenantA, metricFixture({
+      accountId: "act_999",
+      accountName: "Cuenta Fuera Del Job",
+      date: job.startDate,
+      metrics: { reach: 99_999, leads: 999 },
+    }));
+    await historical.upsert(tenantA, metricFixture({
+      accountId: "999",
+      accountName: "Cuenta Fuera Del Job",
+      level: "organic_account",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      date: job.startDate,
+      metrics: { reach: 88_888 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+    }));
+    await historical.upsert(tenantA, metricFixture({
+      accountId: "999",
+      accountName: "Cuenta Fuera Del Job",
+      level: "content",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      contentId: "9999",
+      contentName: "Contenido Fuera Del Job",
+      contentType: "reel",
+      date: job.startDate,
+      metrics: { reach: 77_777 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+    }));
     const calls: Array<{ path: string; token: string }> = [];
     const client: ReadOnlyMetaClient = {
       async get<T>(path: string) {
@@ -237,11 +276,20 @@ describe("agency reporting worker", () => {
       startDate: job.startDate,
       endDate: job.endDate,
     });
-    expect(rows.map(({ level }) => level).sort()).toEqual(["ad", "content", "organic_account"]);
+    expect(rows.map(({ level }) => level).sort()).toEqual([
+      "ad",
+      "ad",
+      "content",
+      "content",
+      "organic_account",
+      "organic_account",
+    ]);
     const workbook = new TextDecoder().decode(
       artifacts.readBytes(tenantA, result.artifact.artifactId),
     );
     expect(workbook).toContain("Reel Orgánico");
+    expect(workbook).not.toContain("Cuenta Fuera Del Job");
+    expect(workbook).not.toContain("Contenido Fuera Del Job");
     await expect(artifacts.getMetadata(tenantB, result.artifact.artifactId))
       .resolves.toBeNull();
     expect(context.events.map((event) => event.outcome)).toEqual(["started", "succeeded"]);
