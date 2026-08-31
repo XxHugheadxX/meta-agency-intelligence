@@ -2,6 +2,21 @@
 
 Project memory for Claude Code (and any other AI assistant). This file is committed and shared with everyone working on the repo.
 
+@docs/CLAUDE_CODE_CONTINUITY.md
+
+## Working fork rules
+
+The working repository is the private
+`XxHugheadxX/meta-agency-intelligence`; the public `meta-ads-mcp` repository is
+read-only upstream. The continuity document above and `AGENTS.md` override
+upstream examples below whenever they differ.
+
+- Do not execute `npm` or `npx` in this checkout. Invoke existing binaries from
+  `node_modules/.bin` directly.
+- Keep agency reporting read-only and never add `ads_management`.
+- Never connect real Meta accounts, deploy, merge, or broaden permissions unless
+  the user explicitly authorizes that separate step after the staging gates.
+
 ## What this project is
 
 A Model Context Protocol server that brokers Meta Ads API access for advertising agencies. Multi-tenant, OAuth-gated, with encrypted-at-rest token storage in Firestore. Deployed to Google Cloud Run.
@@ -9,7 +24,7 @@ A Model Context Protocol server that brokers Meta Ads API access for advertising
 - **Stack**: Node 20.10+, TypeScript (ESM), Express 5, vitest, Pino, Zod, Firestore. MCP SDK 1.29 (`registerTool` API + `ToolAnnotations`).
 - **Entry**: [src/index.ts](src/index.ts) → [src/transport/http.ts](src/transport/http.ts).
 - **Deploy**: push to `main` triggers [.github/workflows/deploy.yml](.github/workflows/deploy.yml). PRs trigger [.github/workflows/ci.yml](.github/workflows/ci.yml).
-- **License**: MIT. **Repository is public on GitHub.**
+- **License**: MIT. The working repository is private; upstream is public.
 
 ## Conventions specific to this repo (v3.0.0+)
 
@@ -20,14 +35,15 @@ A Model Context Protocol server that brokers Meta Ads API access for advertising
 
 ## ⚠️ Pre-deploy / pre-commit safety rule
 
-**This repo is public.** Anything pushed to GitHub is permanent and indexed by search engines and bots within seconds. Treat every commit as a one-way door.
+Treat every commit as a one-way door. A private repository can later become
+public or expose content through collaborators, workflows or artifacts.
 
 Before **any** `git commit -m`, `git push`, `gcloud run deploy`, `docker push`, `npm publish`, or PR merge, the following must be true:
 
-1. `npm run lint` passes.
-2. `npm run typecheck` passes.
-3. `npm test` passes (runs vitest).
-4. `npm run build` passes (TypeScript build).
+1. `./node_modules/.bin/eslint src` passes.
+2. `./node_modules/.bin/tsc --noEmit` passes.
+3. `./node_modules/.bin/vitest run` passes.
+4. `./node_modules/.bin/tsc` passes (TypeScript build).
 5. **No prohibited files in staging**: `.env`, `.env.*` (except `.env.example`), `*.key`, `*.pem`, `credentials.json`, `service-account*.json`, SSH private keys, `*.p12`, `*.pfx`.
 6. **`gitleaks git --staged --config .gitleaks.toml`** finds no secrets. Your
    local gitleaks must match the version pinned in [.gitleaks-version](.gitleaks-version)
@@ -53,28 +69,23 @@ If you have **Claude Code** with the user-scoped `pre-deploy-guard` skill instal
 - A `PreToolUse` hook intercepts `git commit -m` / `git push` / `gcloud run deploy` and runs the guard. If anything fails, the command is blocked.
 - For deep audits on large diffs, delegate to the `pre-deploy-guard` subagent (`Agent({ subagent_type: "pre-deploy-guard", ... })`).
 
-The scripts live in [.github/pre-deploy-guard/scripts/](.github/pre-deploy-guard/scripts/) and can be run directly without Claude Code:
-
-```bash
-bash .github/pre-deploy-guard/scripts/quick-checks.sh   # pre-commit
-bash .github/pre-deploy-guard/scripts/run-checks.sh     # pre-push / pre-deploy
-```
-
-`quick-checks.sh` is the fast gate: file guard, both secret scanners and typecheck. It does **not** run lint, tests or build — `run-checks.sh` does, and it is what has to pass before anything is pushed. The full script also scans the commits about to be pushed, not just the index, since after a commit the index is empty. Neither script runs `npm ci`; install dependencies yourself if `node_modules` is stale, or the npm steps will fail on a missing local `tsc`.
+The bundled guard scripts preserve the upstream npm workflow and therefore must
+not be executed locally under this fork's no-npm rule. Run the direct binaries
+below plus Gitleaks instead. CI remains unchanged until package-manager
+migration is reviewed separately.
 
 To install the Claude Code integration on your machine, see the bottom of this file.
 
 If you don't have Claude Code, you can replicate the checks manually:
 
 ```bash
-# Quick (pre-commit)
-npm run lint && npm run typecheck && npm test
+# Full local gate without npm
+./node_modules/.bin/eslint src
+./node_modules/.bin/tsc --noEmit
+./node_modules/.bin/vitest run --pool=threads --maxWorkers=4 --silent=passed-only
+./node_modules/.bin/tsc
 git diff --cached --name-only | grep -E '^\.env(\..*)?$|\.key$|\.pem$|credentials\.json$|service-account.*\.json$' && echo "PROHIBITED FILE STAGED" && exit 1
 gitleaks git --staged --redact --no-banner --config .gitleaks.toml
-
-# Full (pre-push / pre-deploy)
-npm ci && npm run lint && npm run typecheck && npm test && npm run build
-gitleaks git --redact --no-banner --config .gitleaks.toml
 ```
 
 CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same checks on every PR and on push to `main`. The deploy job in [deploy.yml](.github/workflows/deploy.yml) depends on the preflight job, so a failed lint/test/build/scan blocks deployment.
@@ -100,14 +111,9 @@ If any of these leaks, see the rotation playbooks in [.github/pre-deploy-guard/r
 
 ## Useful commands
 
-```bash
-npm run dev               # tsx watch, HTTP transport
-npm run dev:stdio         # tsx watch, stdio transport
-npm run build             # tsc → dist/
-npm test                  # vitest run
-npm run lint              # eslint src/
-npm run typecheck         # tsc --noEmit
-```
+Use the direct commands documented in
+[docs/CLAUDE_CODE_CONTINUITY.md](docs/CLAUDE_CODE_CONTINUITY.md). Do not execute
+the upstream npm script aliases.
 
 ## Repository conventions
 
@@ -119,7 +125,15 @@ npm run typecheck         # tsc --noEmit
 
 ## Installing the Claude Code guard (optional but recommended)
 
-If you're using Claude Code on this repo and want the same automatic pre-commit/pre-push guard the maintainers use:
+The upstream Claude hook invokes npm-based scripts, so do not install or enable
+it for this working fork until that hook is migrated in a separate reviewed PR.
+Use the manual direct-binary gate and Gitleaks documented above.
+
+For upstream reference only, the original integration lives under
+[.github/pre-deploy-guard/](.github/pre-deploy-guard/).
+
+<!--
+If you're using Claude Code on the upstream repo and want the same automatic pre-commit/pre-push guard the maintainers use:
 
 Everything ships in this repo under [.github/pre-deploy-guard/](.github/pre-deploy-guard/) — see its [README](.github/pre-deploy-guard/README.md) for the full walkthrough.
 
@@ -144,3 +158,4 @@ Everything ships in this repo under [.github/pre-deploy-guard/](.github/pre-depl
 3. **Opt a repo in**: the marker file `.github/pre-deploy-guard.enabled` is already committed here, so the hook activates automatically. The hook is silently inert in any repo without that marker.
 
 The guard is defense-in-depth — even without it on your machine, [.github/workflows/ci.yml](.github/workflows/ci.yml) and the deploy preflight job catch the same issues server-side. The local hook just shortens the feedback loop.
+-->
