@@ -10,6 +10,8 @@ import {
 export interface FirestoreAgencyReportingRuntimeDependencies {
   readonly db: Firestore;
   readonly artifacts: ReportArtifactStore;
+  readonly historicalData?: FirestoreHistoricalDataRepository;
+  readonly checkpoints?: FirestoreIngestionCheckpointRepository;
   readonly clientFactory?: ReportingReadOnlyMetaClientFactory;
   readonly now?: () => string;
 }
@@ -18,8 +20,8 @@ export function createFirestoreAgencyReportingRuntime(
   dependencies: FirestoreAgencyReportingRuntimeDependencies,
 ): MetaAgencyReportingRuntime {
   return new MetaAgencyReportingRuntime(
-    new FirestoreHistoricalDataRepository(dependencies.db),
-    new FirestoreIngestionCheckpointRepository(dependencies.db),
+    dependencies.historicalData ?? new FirestoreHistoricalDataRepository(dependencies.db),
+    dependencies.checkpoints ?? new FirestoreIngestionCheckpointRepository(dependencies.db),
     dependencies.artifacts,
     dependencies.clientFactory,
     dependencies.now,

@@ -17,6 +17,11 @@ import { GoogleOidcWorkloadIdentityVerifier } from "./google-oidc-verifier.js";
 import { PublicKeyIngestionJobVerifier } from "./job-verifier.js";
 import { resolveReportingJobRuntimeConfig } from "./reporting-job-config.js";
 import { FirestoreReportingJobLeaseRepository } from "./reporting-job-lease-repository.js";
+import {
+  AgencyReportingBatchCoordinator,
+  FirestoreReportingBatchRepository,
+} from "./reporting-batch-coordinator.js";
+import { FirestoreHistoricalDataRepository } from "../historical-data/index.js";
 import type { ReportingJobEndpointDependencies } from "./reporting-job-http-handler.js";
 import { AgencyReportingWorker } from "./reporting-worker.js";
 import { ReportingConcurrencyGate } from "../scheduler/index.js";
@@ -54,11 +59,12 @@ export function createReportingJobEndpointDependencies(
     new FirestoreMetaTokenRepo(),
     dependencies.serverUrl,
   );
+  const historicalData = new FirestoreHistoricalDataRepository(db);
   const worker = new AgencyReportingWorker(
     identities,
     new PublicKeyIngestionJobVerifier(config.jobPublicKey),
     connections,
-    createFirestoreAgencyReportingRuntime({ db, artifacts }),
+    createFirestoreAgencyReportingRuntime({ db, artifacts, historicalData }),
     new FirestoreIngestionAuditSink(db),
     undefined,
     {
@@ -66,6 +72,11 @@ export function createReportingJobEndpointDependencies(
       leaseTtlMs: config.leaseTtlMs,
       admission: new ReportingConcurrencyGate(),
     },
+    new AgencyReportingBatchCoordinator(
+      new FirestoreReportingBatchRepository(db),
+      historicalData,
+      artifacts,
+    ),
   );
   return { worker, identities };
 }

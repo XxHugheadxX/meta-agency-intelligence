@@ -25,6 +25,10 @@ OIDC del scheduler + payload firmado
   orgánicos asociados. Otras cuentas pueden compartir el histórico del
   workspace, pero no se incorporan accidentalmente a ese artefacto. El futuro
   consolidado de agencia será un artefacto separado al cerrar el batch.
+- Cada job registra su finalización en un batch Firestore tenant-scoped. La
+  última cuenta obtiene un claim con fencing y expiración, genera el workbook
+  consolidado desde el histórico completo del workspace y almacena el artefacto
+  con `jobId=batchId`. Un fallo libera el claim y un replay puede reintentarlo.
 - Los contadores `rowsWritten` y `pagesRead` del resultado suman Ads, orgánico
   account-level y contenido. Antes de agregarlos, el worker vuelve a validar que
   todos los resultados pertenezcan al tenant/workspace y ventana del job.

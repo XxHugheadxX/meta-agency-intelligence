@@ -52,7 +52,10 @@ opt-in autentica Google OIDC antes de parsear el payload firmado. Un trigger OID
 separado calcula el último período completo y compone Firestore, firma KMS y
 publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compone
 control plane, tokens cifrados, histórico, artefactos, auditoría y leases
-tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
+tenant-scoped sobre Firestore. Las completaciones de cada batch también se
+persisten bajo tenant/workspace; la última cuenta reclama con fencing la
+generación de un único workbook consolidado y un replay recupera claims fallidos
+o vencidos. No existe todavía un scheduler o cola desplegados,
 ni se validaron GCS/IAM/CMEK en staging. La ingesta orgánica account-level de
 Pages/Instagram y content-level de Instagram ya tiene lectores GET-only,
 normalización, aislamiento y orquestación programada probados con fixtures. Los

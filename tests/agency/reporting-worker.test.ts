@@ -11,6 +11,7 @@ import {
   type IngestionAuditEvent,
   type ReadOnlyMetaClient,
   type ReportingJobPayload,
+  type ReportingBatchCompletionSink,
   type ReportingRuntime,
   type ResolvedIngestionConnection,
 } from "../../src/agency/index.js";
@@ -80,6 +81,7 @@ function workerHarness(
   resolved: ResolvedIngestionConnection = connection,
   verifiedJob: ReportingJobPayload = job,
   leaseOptions?: AgencyReportingWorkerLeaseOptions,
+  batches?: ReportingBatchCompletionSink,
 ) {
   const events: IngestionAuditEvent[] = [];
   const connections = { resolve: vi.fn().mockResolvedValue(resolved) };
@@ -98,8 +100,18 @@ function workerHarness(
     { async record(event) { events.push(structuredClone(event)); } },
     () => "2026-08-31T08:00:00.000Z",
     leaseOptions,
+    batches,
   );
-  return { worker, connections, events };
+  return {
+    worker,
+    connections,
+    events,
+    envelope: {
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    },
+  };
 }
 
 describe("agency reporting worker", () => {
@@ -355,6 +367,25 @@ describe("agency reporting worker", () => {
       );
     }
     expect(runtime.run).not.toHaveBeenCalled();
+  });
+
+  it("records a validated batch completion after the account artifact succeeds", async () => {
+    const batchedJob: ReportingJobPayload = {
+      ...job,
+      batchId: `batch-${"a".repeat(40)}`,
+      batchAccountIds: [job.accountId],
+    };
+    const batches = { record: vi.fn().mockResolvedValue(null) };
+    const context = workerHarness(
+      { run: vi.fn().mockResolvedValue(runtimeResult) },
+      connection,
+      batchedJob,
+      undefined,
+      batches,
+    );
+    await expect(context.worker.run(context.envelope)).resolves.toMatchObject({ jobId: job.jobId });
+    expect(batches.record).toHaveBeenCalledOnce();
+    expect(batches.record).toHaveBeenCalledWith(batchedJob);
   });
 
   it("rejects organic assets without their required read-only scopes", async () => {

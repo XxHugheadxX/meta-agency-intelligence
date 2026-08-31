@@ -8,6 +8,7 @@ import {
   type ReportingJobLeaseHandle,
   type ReportingJobLeaseRepository,
 } from "./reporting-job-lease-repository.js";
+import type { ReportingBatchCompletionSink } from "./reporting-batch-coordinator.js";
 import type {
   AgencyReportingWorkerResult,
   IngestionAuditSink,
@@ -208,6 +209,7 @@ export class AgencyReportingWorker {
     private readonly audit: IngestionAuditSink,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly leaseOptions?: AgencyReportingWorkerLeaseOptions,
+    private readonly batches?: ReportingBatchCompletionSink,
   ) {}
 
   async run(envelope: IngestionJobEnvelope): Promise<AgencyReportingWorkerResult> {
@@ -282,6 +284,8 @@ export class AgencyReportingWorker {
         runId: result.ingestion.runId,
         artifact: result.artifact,
       };
+
+      await this.batches?.record(job);
 
       if (this.leaseOptions && heartbeat && leaseHandle && fingerprint) {
         const heartbeatState = await heartbeat.stop();

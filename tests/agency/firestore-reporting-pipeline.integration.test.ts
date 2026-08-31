@@ -4,6 +4,7 @@ import { Firestore } from "@google-cloud/firestore";
 import {
   createFirestoreReadOnlyReportingPipeline,
   FirestoreReportArtifactStore,
+  FirestoreReportingBatchRepository,
   InMemoryIngestionAssetPolicy,
   type ReportObjectStore,
   type InsightsPageQuery,
@@ -145,5 +146,27 @@ describeEmulator("Firestore read-only reporting pipeline integration", () => {
     )).resolves.toBeNull();
     expect(JSON.stringify(stored)).not.toContain("objectKey");
     expect(JSON.stringify(stored)).not.toContain("bytes");
+  });
+
+  it("claims a tenant-scoped batch only after all expected accounts complete", async () => {
+    const batches = new FirestoreReportingBatchRepository(
+      db,
+      () => Date.parse("2026-08-31T08:00:00.000Z"),
+    );
+    const common = {
+      batchId: `batch-${"c".repeat(40)}`,
+      expectedAccountIds: ["act_500", "act_600"],
+      reportKind: "week" as const,
+      startDate: "2026-08-24",
+      endDate: "2026-08-30",
+    };
+    await expect(batches.record(scope, { ...common, accountId: "act_500" }))
+      .resolves.toEqual({ status: "waiting" });
+    const completed = await batches.record(scope, { ...common, accountId: "act_600" });
+    expect(completed.status).toBe("claimed");
+    if (completed.status !== "claimed") throw new Error("Expected batch claim");
+    await expect(batches.complete(scope, completed.claim, "d".repeat(64))).resolves.toBe(true);
+    await expect(batches.record(scope, { ...common, accountId: "act_600" }))
+      .resolves.toEqual({ status: "complete" });
   });
 });
