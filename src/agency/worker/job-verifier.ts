@@ -20,6 +20,8 @@ const ALLOWED_FIELDS = new Set([
   "reportStartDate",
   "reportEndDate",
   "retentionDays",
+  "batchId",
+  "batchAccountIds",
 ]);
 
 function parsePayload(payload: string): IngestionJobPayload {
@@ -55,6 +57,13 @@ function parsePayload(payload: string): IngestionJobPayload {
       record.breakdowns.some((item) => typeof item !== "string"))
   ) {
     throw new Error("Signed ingestion breakdowns must be an array of strings");
+  }
+  if (
+    record.batchAccountIds !== undefined &&
+    (!Array.isArray(record.batchAccountIds) ||
+      record.batchAccountIds.some((item) => typeof item !== "string"))
+  ) {
+    throw new Error("Signed reporting batch accounts must be an array of strings");
   }
   return structuredClone(record) as unknown as IngestionJobPayload;
 }

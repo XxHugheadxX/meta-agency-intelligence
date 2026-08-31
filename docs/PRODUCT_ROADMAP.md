@@ -144,6 +144,11 @@ filas ya ingeridas de otras cuentas del workspace. Sigue pendiente coordinar el
 cierre del batch para generar un único Excel consolidado de agencia cuando
 terminen todas las ingestas del período.
 
+El fan-out ya firma un `batchId` determinista y la lista completa y ordenada de
+cuentas esperadas en cada job. El worker valida esa membresía fail-closed; falta
+persistir las completaciones y emitir el artefacto consolidado al recibir la
+última cuenta.
+
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
 - Observabilidad por job/tenant sin PII.

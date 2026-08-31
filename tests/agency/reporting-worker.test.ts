@@ -333,6 +333,30 @@ describe("agency reporting worker", () => {
     });
   });
 
+  it("rejects incomplete or manipulated signed batch membership", async () => {
+    const runtime = { run: vi.fn() } as unknown as MetaAgencyReportingRuntime;
+    for (const invalidJob of [
+      { ...job, batchId: `batch-${"a".repeat(40)}` },
+      { ...job, batchAccountIds: [job.accountId] },
+      {
+        ...job,
+        batchId: `batch-${"a".repeat(40)}`,
+        batchAccountIds: ["act_999"],
+      },
+      {
+        ...job,
+        batchId: `batch-${"a".repeat(40)}`,
+        batchAccountIds: [job.accountId, job.accountId],
+      },
+    ] as ReportingJobPayload[]) {
+      const context = workerHarness(runtime, connection, invalidJob);
+      await expect(context.worker.run(context.envelope)).rejects.toThrow(
+        "Agency reporting job was rejected or failed",
+      );
+    }
+    expect(runtime.run).not.toHaveBeenCalled();
+  });
+
   it("rejects organic assets without their required read-only scopes", async () => {
     const runtime = { run: vi.fn() } as unknown as MetaAgencyReportingRuntime;
     const context = workerHarness(runtime, {

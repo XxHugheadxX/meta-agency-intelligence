@@ -111,6 +111,27 @@ function validateReportingJob(job: ReportingJobPayload): void {
   ) {
     throw new Error("Invalid report retentionDays");
   }
+  if ((job.batchId === undefined) !== (job.batchAccountIds === undefined)) {
+    throw new Error("Reporting batch identity and accounts must be provided together");
+  }
+  if (job.batchId !== undefined && job.batchAccountIds !== undefined) {
+    if (!/^batch-[a-f0-9]{40}$/.test(job.batchId)) {
+      throw new Error("Invalid reporting batchId");
+    }
+    if (job.batchAccountIds.length < 1 || job.batchAccountIds.length > 100) {
+      throw new Error("Reporting batch account count is invalid");
+    }
+    const sorted = [...job.batchAccountIds].sort();
+    if (
+      sorted.some((accountId, index) =>
+        !/^act_[0-9]+$/.test(accountId) ||
+        accountId !== job.batchAccountIds?.[index] ||
+        (index > 0 && accountId === sorted[index - 1])) ||
+      !job.batchAccountIds.includes(job.accountId)
+    ) {
+      throw new Error("Reporting batch accounts are invalid");
+    }
+  }
 }
 
 function auditEvent(

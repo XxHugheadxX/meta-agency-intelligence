@@ -85,7 +85,7 @@ function assertRequest(request: ReportingFanOutRequest): void {
   }
 }
 
-function jobIdFor(request: ReportingFanOutRequest, accountId: string): string {
+function jobIdFor(request: ReportingFanOutRequest, accountId: string, batchId: string): string {
   const fingerprint = JSON.stringify([
     request.tenantId,
     request.workspaceId,
@@ -99,18 +99,42 @@ function jobIdFor(request: ReportingFanOutRequest, accountId: string): string {
     request.apiVersion,
     request.attributionWindow ?? null,
     request.retentionDays ?? null,
+    batchId,
   ]);
   return `report-${createHash("sha256").update(fingerprint, "utf8").digest("hex").slice(0, 40)}`;
+}
+
+function batchIdFor(
+  request: ReportingFanOutRequest,
+  accountIds: readonly string[],
+): string {
+  const fingerprint = JSON.stringify([
+    request.tenantId,
+    request.workspaceId,
+    request.reportKind,
+    request.reportStartDate,
+    request.reportEndDate,
+    request.ingestionStartDate,
+    request.ingestionEndDate,
+    request.level,
+    request.apiVersion,
+    request.attributionWindow ?? null,
+    request.retentionDays ?? null,
+    accountIds,
+  ]);
+  return `batch-${createHash("sha256").update(fingerprint, "utf8").digest("hex").slice(0, 40)}`;
 }
 
 function payloadFor(
   request: ReportingFanOutRequest,
   accountId: string,
+  batchId: string,
+  batchAccountIds: readonly string[],
 ): ReportingJobPayload {
   return {
     tenantId: request.tenantId,
     workspaceId: request.workspaceId,
-    jobId: jobIdFor(request, accountId),
+    jobId: jobIdFor(request, accountId, batchId),
     accountId,
     startDate: request.ingestionStartDate,
     endDate: request.ingestionEndDate,
@@ -121,6 +145,8 @@ function payloadFor(
     reportKind: request.reportKind,
     reportStartDate: request.reportStartDate,
     reportEndDate: request.reportEndDate,
+    batchId,
+    batchAccountIds,
     ...(request.retentionDays === undefined ? {} : { retentionDays: request.retentionDays }),
   };
 }
@@ -158,11 +184,19 @@ export class ReportingJobFanOut {
     const scope = { tenantId: request.tenantId, workspaceId: request.workspaceId };
     const accounts = await this.accounts.listActive(scope);
     assertAccounts(scope, accounts);
+    const sortedAccounts = [...accounts].sort((left, right) =>
+      left.accountId.localeCompare(right.accountId));
+    const batchAccountIds = sortedAccounts.map(({ accountId }) => accountId);
+    const batchId = batchIdFor(request, batchAccountIds);
 
     let jobsPublished = 0;
-    for (const account of [...accounts].sort((left, right) =>
-      left.accountId.localeCompare(right.accountId))) {
-      const payload = JSON.stringify(payloadFor(request, account.accountId));
+    for (const account of sortedAccounts) {
+      const payload = JSON.stringify(payloadFor(
+        request,
+        account.accountId,
+        batchId,
+        batchAccountIds,
+      ));
       const signature = await this.signer.sign(payload);
       const message = parseSignedReportingMessage({ payload, signature });
       if (!message) throw new Error("Reporting signer returned an invalid signature");

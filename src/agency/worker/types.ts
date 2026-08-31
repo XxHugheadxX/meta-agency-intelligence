@@ -26,6 +26,8 @@ export interface ReportingJobPayload extends IngestionJobPayload {
   readonly reportStartDate: string;
   readonly reportEndDate: string;
   readonly retentionDays?: number;
+  readonly batchId?: string;
+  readonly batchAccountIds?: readonly string[];
 }
 
 export interface IngestionJobEnvelope {

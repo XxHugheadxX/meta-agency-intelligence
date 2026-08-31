@@ -10,6 +10,11 @@ recurso Google Cloud ni se ha iniciado sesión en un proyecto real.
 `ReportingJobFanOut` prepara un job determinista por cuenta activa, valida que
 todas pertenezcan al tenant/workspace solicitado, firma el JSON mediante una
 interfaz inyectable y publica solamente `{ payload, signature }`. El adaptador
+incluye en cada payload un `batchId` determinista y la misma lista ordenada
+`batchAccountIds`. Ambos quedan cubiertos por la firma; el worker rechaza listas
+vacías, duplicadas, desordenadas, mayores a 100 o que no incluyan su cuenta.
+Cambiar la membresía cambia tanto el batch como los IDs de sus jobs, evitando
+colisiones con leases de una ejecución anterior. El adaptador
 Firestore de cuentas activas verifica primero el workspace, proyecta únicamente
 identidad y estado, y nunca carga `tokenName` ni credenciales. El firmador KMS
 envía sólo el digest SHA-256, usa el token efímero de la service account y valida
@@ -50,6 +55,10 @@ Pub/Sub ofrece entrega al menos una vez. La idempotencia no depende de
 `messageId`: se basa en el payload firmado, su fingerprint y el lease
 tenant-scoped. Un mensaje duplicado no debe ejecutar Meta o generar un workbook
 por segunda vez.
+
+La membresía firmada es el contrato de completitud del futuro consolidado: el
+coordinador sólo podrá cerrar el batch cuando estén registradas exactamente esas
+cuentas dentro del mismo tenant, workspace y período.
 
 ## Contrato del mensaje
 

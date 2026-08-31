@@ -48,6 +48,12 @@ describe("reporting job fan-out", () => {
 
     const payloads = first.messages.map((message) => JSON.parse(message.payload));
     expect(payloads.map((payload) => payload.accountId)).toEqual(["act_100", "act_200"]);
+    expect(payloads.map((payload) => payload.batchAccountIds)).toEqual([
+      ["act_100", "act_200"],
+      ["act_100", "act_200"],
+    ]);
+    expect(payloads[0].batchId).toMatch(/^batch-[a-f0-9]{40}$/);
+    expect(payloads[1].batchId).toBe(payloads[0].batchId);
     expect(payloads[0]).toMatchObject({
       ...tenantA,
       mode: "incremental",
@@ -68,6 +74,14 @@ describe("reporting job fan-out", () => {
     await replay.fanOut.publish(request);
     expect(replay.messages.map((message) => JSON.parse(message.payload).jobId))
       .toEqual(payloads.map((payload) => payload.jobId));
+    expect(replay.messages.map((message) => JSON.parse(message.payload).batchId))
+      .toEqual(payloads.map((payload) => payload.batchId));
+
+    const changedMembership = harness([{ ...tenantA, accountId: "act_100" }]);
+    await changedMembership.fanOut.publish(request);
+    const changedPayload = JSON.parse(changedMembership.messages[0].payload);
+    expect(changedPayload.batchId).not.toBe(payloads[0].batchId);
+    expect(changedPayload.jobId).not.toBe(payloads[0].jobId);
   });
 
   it("rejects cross-tenant or duplicate accounts before signing or publishing", async () => {
