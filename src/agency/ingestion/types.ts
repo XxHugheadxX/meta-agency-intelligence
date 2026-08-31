@@ -1,7 +1,7 @@
 import type { MetaApiResponse } from "../../meta/types/common.js";
 import type { InsightsResult } from "../../meta/types/insights.js";
 import type {
-  HistoricalMetricLevel,
+  PaidHistoricalMetricLevel,
   ReportingScope,
 } from "../historical-data/index.js";
 
@@ -29,7 +29,7 @@ export interface InsightsPageQuery {
   readonly account: IngestionAccount;
   readonly startDate: string;
   readonly endDate: string;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly attributionWindow: string | null;
   readonly breakdowns: readonly string[];
   readonly pageSize: number;
@@ -53,7 +53,7 @@ export interface IngestionAssetPolicy {
 
 export interface IngestionCheckpointKey {
   readonly accountId: string;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly attributionWindow: string | null;
   readonly breakdowns: readonly string[];
   readonly apiVersion: string;
@@ -78,7 +78,7 @@ export interface InsightsIngestionRequest {
   readonly account: IngestionAccount;
   readonly startDate: string;
   readonly endDate: string;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly apiVersion: string;
   readonly attributionWindow?: string | null;
   readonly breakdowns?: readonly string[];

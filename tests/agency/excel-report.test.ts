@@ -104,4 +104,43 @@ describe("AgencyExcelReportGenerator", () => {
     const report = await sampleReport();
     expect(() => new AgencyExcelReportGenerator().generate(report, { filename: "../report.xlsm" })).toThrow("safe .xlsx");
   });
+
+  it("renders typed organic content metrics without treating content as an ad", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    await repository.upsert(tenantA, metricFixture({
+      level: "content",
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      contentId: "7001",
+      contentName: "Departamento Centro Reel",
+      contentType: "reel",
+      metrics: { reach: 1_000, views: 1_500, interactions: 120, saves: 18, shares: 12 },
+      attributionWindow: null,
+      breakdowns: { source: "meta_organic_content_insights", platform: "instagram" },
+      rawData: { source: "synthetic-organic-content" },
+    }));
+    const report = await new AgencyReportingService(repository).createWeeklyReport(
+      tenantA,
+      "2026-08-12",
+      "content",
+    );
+    const result = new AgencyExcelReportGenerator().generate(report, {
+      generatedAt: "2026-08-12T00:00:00.000Z",
+    });
+    const files = unzipStored(result.bytes);
+    const contentSheet = files.get("xl/worksheets/sheet8.xml") ?? "";
+    const rawSheet = files.get("xl/worksheets/sheet10.xml") ?? "";
+
+    expect(contentSheet).toContain("7001");
+    expect(contentSheet).toContain("Departamento Centro Reel");
+    expect(contentSheet).toContain("reel");
+    expect(contentSheet).toContain("<v>18</v>");
+    expect(contentSheet).toContain("<v>12</v>");
+    expect(rawSheet).toContain("content_id");
+    expect(rawSheet).toContain("content_type");
+  });
 });

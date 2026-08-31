@@ -144,7 +144,7 @@ export function normalizeOrganicInsights(
       agentId: context.asset.agentId ?? null,
       agentName: context.asset.agentName ?? null,
       date,
-      level: "account",
+      level: "organic_account",
       metrics: row.metrics,
       currency: context.asset.currency,
       timezone: context.asset.timezone,

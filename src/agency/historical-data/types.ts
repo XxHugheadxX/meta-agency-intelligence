@@ -3,7 +3,8 @@ export interface ReportingScope {
   workspaceId: string;
 }
 
-export type HistoricalMetricLevel = "account" | "campaign" | "ad_set" | "ad";
+export type PaidHistoricalMetricLevel = "account" | "campaign" | "ad_set" | "ad";
+export type HistoricalMetricLevel = PaidHistoricalMetricLevel | "organic_account" | "content";
 
 export type MetricName =
   | "spend"
@@ -62,6 +63,9 @@ export interface HistoricalMetricInput {
   adSetName?: string | null;
   adId?: string | null;
   adName?: string | null;
+  contentId?: string | null;
+  contentName?: string | null;
+  contentType?: string | null;
   agentId?: string | null;
   agentName?: string | null;
   date: string;
@@ -88,6 +92,9 @@ export interface HistoricalMetricRow extends ReportingScope {
   adSetName: string | null;
   adId: string | null;
   adName: string | null;
+  contentId: string | null;
+  contentName: string | null;
+  contentType: string | null;
   agentId: string | null;
   agentName: string | null;
   date: string;
@@ -199,6 +206,12 @@ export function normalizeHistoricalMetric(
   if (input.level === "ad") {
     assertRequiredDimension(input.adId, input.adName, "ad");
   }
+  if (input.level === "content") {
+    assertRequiredDimension(input.contentId, input.contentName, "content");
+    if (!input.contentType?.trim()) {
+      throw new Error("contentType is required for content level");
+    }
+  }
   if (!input.rawData || Array.isArray(input.rawData)) {
     throw new Error("rawData must be an aggregate, non-PII object");
   }
@@ -215,6 +228,9 @@ export function normalizeHistoricalMetric(
     adSetName: input.adSetName ?? null,
     adId: input.adId ?? null,
     adName: input.adName ?? null,
+    contentId: input.contentId ?? null,
+    contentName: input.contentName ?? null,
+    contentType: input.contentType ?? null,
     agentId: input.agentId ?? null,
     agentName: input.agentName ?? null,
     date: input.date,

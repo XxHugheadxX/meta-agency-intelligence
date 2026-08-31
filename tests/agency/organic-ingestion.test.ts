@@ -193,12 +193,12 @@ describe("Meta organic read-only ingestion", () => {
     await expect(context.historical.list(tenantA, {
       startDate: "2026-08-10",
       endDate: "2026-08-11",
-      level: "account",
+      level: "organic_account",
     })).resolves.toHaveLength(2);
     const stored = await context.historical.list(tenantA, {
       startDate: "2026-08-10",
       endDate: "2026-08-11",
-      level: "account",
+      level: "organic_account",
     });
     expect(stored[1]?.metrics.newFollowers).toBe(-3);
     expect(stored[1]?.quality).toBe("partial");

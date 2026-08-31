@@ -2,7 +2,7 @@ import type { ActionValue } from "../../meta/types/insights.js";
 import {
   assertIsoDate,
   type HistoricalMetricInput,
-  type HistoricalMetricLevel,
+  type PaidHistoricalMetricLevel,
 } from "../historical-data/index.js";
 import type { IngestionAccount, MetaInsightRecord } from "./types.js";
 
@@ -24,7 +24,7 @@ const SENSITIVE_VALUE = /(?:\bBearer\s+[A-Za-z0-9._~-]+|\bEAA[A-Za-z0-9_-]{12,}|
 
 export interface NormalizeInsightContext {
   readonly account: IngestionAccount;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly attributionWindow: string | null;
   readonly breakdowns: readonly string[];
   readonly apiVersion: string;
@@ -94,7 +94,7 @@ function sanitizeRaw(value: unknown, depth = 0): unknown {
   return value;
 }
 
-function dimensions(record: MetaInsightRecord, level: HistoricalMetricLevel) {
+function dimensions(record: MetaInsightRecord, level: PaidHistoricalMetricLevel) {
   const campaignId = level === "account" ? null : requiredText(record.campaign_id, "campaign_id");
   const campaignName = level === "account" ? null : requiredText(record.campaign_name, "campaign_name");
   const adSetId = level === "ad_set" || level === "ad" ? requiredText(record.adset_id, "adset_id") : null;

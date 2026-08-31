@@ -43,9 +43,10 @@ publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compon
 control plane, tokens cifrados, histórico, artefactos, auditoría y leases
 tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
 ni se validaron GCS/IAM/CMEK en staging. La ingesta orgánica account-level de
-Pages/Instagram ya tiene lectores GET-only, normalización y aislamiento probados
-con fixtures; faltan insights por contenido y validar los contratos contra una
-Meta Test App.
+Pages/Instagram y content-level de Instagram ya tiene lectores GET-only,
+normalización y aislamiento probados con fixtures. Los niveles permanecen
+separados para evitar doble conteo. Falta Facebook post-level y validar los
+contratos contra una Meta Test App; ver `ORGANIC_INSIGHTS.md`.
 
 `src/agency/scheduler/` aporta control de concurrencia global y por workspace,
 HTTP 429 con `Retry-After`, política conservadora de reintentos y registros

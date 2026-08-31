@@ -65,8 +65,9 @@ checkpoints monotónicos, replay idempotente y aislamiento probado con datos
 sintéticos. La rama MVP incorpora lectores account-level GET-only para Page
 Insights e Instagram Insights, normalización diaria, raw sanitizado y
 aislamiento tenant-scoped con fixtures sintéticos. La ingesta orgánica por
-contenido, los bindings de producción y los contract tests con una Meta Test
-App siguen pendientes.
+contenido de Instagram añade discovery paginado, snapshots lifetime y nivel
+histórico separado. Facebook post-level, los bindings de producción y los
+contract tests con una Meta Test App siguen pendientes.
 
 La rama `feature/firestore-ingestion-integration` añade persistencia
 transaccional, checkpoints monotónicos ante concurrencia y una suite contra
@@ -180,8 +181,8 @@ Orden recomendado:
 2. Aprovisionar el bucket GCS privado y validar IAM, CMEK, lifecycle y descarga
    proxy en staging con archivos sintéticos.
 3. Ejecutar contract tests en una Meta test app sin cuentas reales.
-4. Completar insights orgánicos por contenido y validar los lectores account-level
-   contra una Meta Test App.
+4. Añadir Facebook post-level y validar todos los lectores orgánicos contra una
+   Meta Test App.
 5. Ensayar rotación y restore de claves con documentos ficticios.
 6. Implementar scheduler, backpressure, reintentos coordinados y dead-letter
    queue antes de escalar a veinte cuentas.

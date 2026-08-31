@@ -33,7 +33,12 @@ function readStoredRow(
   ) {
     throw new Error("Stored historical metric identity does not match its tenant path");
   }
-  return row;
+  return {
+    ...row,
+    contentId: row.contentId ?? null,
+    contentName: row.contentName ?? null,
+    contentType: row.contentType ?? null,
+  };
 }
 
 export class FirestoreHistoricalDataRepository implements HistoricalDataRepository {

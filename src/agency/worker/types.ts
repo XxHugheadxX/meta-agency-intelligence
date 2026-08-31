@@ -1,4 +1,4 @@
-import type { HistoricalMetricLevel, ReportingScope } from "../historical-data/index.js";
+import type { PaidHistoricalMetricLevel, ReportingScope } from "../historical-data/index.js";
 import type { IngestionAccount, InsightsIngestionResult } from "../ingestion/index.js";
 import type { StoredReportArtifact } from "../delivery/index.js";
 
@@ -7,7 +7,7 @@ export interface IngestionJobPayload extends ReportingScope {
   readonly accountId: string;
   readonly startDate: string;
   readonly endDate: string;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly apiVersion: string;
   readonly attributionWindow?: string | null;
   readonly breakdowns?: readonly string[];

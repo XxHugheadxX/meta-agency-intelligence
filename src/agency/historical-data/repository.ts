@@ -28,6 +28,8 @@ export function historicalMetricId(scope: ReportingScope, input: HistoricalMetri
     input.campaignId ?? "",
     input.adSetId ?? "",
     input.adId ?? "",
+    input.contentId ?? "",
+    input.contentType ?? "",
     input.date,
     input.level,
     input.currency,

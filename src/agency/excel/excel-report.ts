@@ -280,16 +280,16 @@ function dimensionRows(
 function contentRows(rows: readonly HistoricalMetricRow[]): Row[] {
   return [
     [
-      { value: "Fecha", style: 1 }, { value: "Ad ID", style: 1 }, { value: "Contenido", style: 1 },
-      { value: "Campaña", style: 1 }, { value: "Ad Set", style: 1 }, { value: "Moneda", style: 1 },
+      { value: "Fecha", style: 1 }, { value: "Contenido ID", style: 1 }, { value: "Contenido", style: 1 },
+      { value: "Tipo", style: 1 }, { value: "Campaña", style: 1 }, { value: "Ad Set", style: 1 }, { value: "Moneda", style: 1 },
       { value: "Alcance", style: 1 }, { value: "Interacciones", style: 1 }, { value: "Guardados", style: 1 },
       { value: "Compartidos", style: 1 }, { value: "Clics", style: 1 }, { value: "Leads", style: 1 },
     ],
     ...rows.map((row) => [
-      { value: row.date }, { value: row.adId ?? "" }, { value: row.adName ?? "" },
-      { value: row.campaignName ?? "" }, { value: row.adSetName ?? "" }, { value: row.currency },
+      { value: row.date }, { value: row.contentId ?? row.adId ?? "" }, { value: row.contentName ?? row.adName ?? "" },
+      { value: row.contentType ?? (row.adId ? "ad" : "") }, { value: row.campaignName ?? "" }, { value: row.adSetName ?? "" }, { value: row.currency },
       { value: metricValue(row.metrics.reach), style: 2 }, { value: metricValue(row.metrics.interactions), style: 2 },
-      { value: metricValue(asMetric(row.rawData, "saves")), style: 2 }, { value: metricValue(asMetric(row.rawData, "shares")), style: 2 },
+      { value: metricValue(row.metrics.saves ?? asMetric(row.rawData, "saves")), style: 2 }, { value: metricValue(row.metrics.shares ?? asMetric(row.rawData, "shares")), style: 2 },
       { value: metricValue(row.metrics.clicks), style: 2 }, { value: metricValue(row.metrics.leads), style: 2 },
     ]),
   ];
@@ -307,7 +307,8 @@ function rawRows(rows: readonly HistoricalMetricRow[]): Row[] {
       { value: "date", style: 1 }, { value: "level", style: 1 }, { value: "account_id", style: 1 },
       { value: "account_name", style: 1 }, { value: "campaign_id", style: 1 }, { value: "campaign_name", style: 1 },
       { value: "adset_id", style: 1 }, { value: "adset_name", style: 1 }, { value: "ad_id", style: 1 },
-      { value: "ad_name", style: 1 }, { value: "agent_id", style: 1 }, { value: "agent_name", style: 1 },
+      { value: "ad_name", style: 1 }, { value: "content_id", style: 1 }, { value: "content_name", style: 1 },
+      { value: "content_type", style: 1 }, { value: "agent_id", style: 1 }, { value: "agent_name", style: 1 },
       { value: "currency", style: 1 }, { value: "timezone", style: 1 }, { value: "quality", style: 1 },
       ...METRIC_LABELS.map(([, label]) => ({ value: label, style: 1 })),
       { value: "breakdowns_json", style: 1 }, { value: "raw_data_json", style: 1 },
@@ -316,6 +317,7 @@ function rawRows(rows: readonly HistoricalMetricRow[]): Row[] {
       { value: "scoped" }, { value: "scoped" }, { value: row.id }, { value: row.date }, { value: row.level },
       { value: row.accountId }, { value: row.accountName }, { value: row.campaignId ?? "" }, { value: row.campaignName ?? "" },
       { value: row.adSetId ?? "" }, { value: row.adSetName ?? "" }, { value: row.adId ?? "" }, { value: row.adName ?? "" },
+      { value: row.contentId ?? "" }, { value: row.contentName ?? "" }, { value: row.contentType ?? "" },
       { value: row.agentId ?? "" }, { value: row.agentName ?? "" }, { value: row.currency }, { value: row.timezone }, { value: row.quality },
       ...METRIC_LABELS.map(([metric, , style]) => ({
         value: excelMetricValue(metric, row.metrics[metric]),
@@ -338,7 +340,11 @@ function categorySeries(rows: readonly HistoricalMetricRow[]): { categories: str
 }
 
 function topContent(rows: readonly HistoricalMetricRow[]): Array<{ name: string; value: number | null }> {
-  return aggregateBy(rows.filter((row) => row.adId !== null), (row) => row.adId ?? "sin-id", (row) => row.adName ?? "Sin nombre")
+  return aggregateBy(
+    rows.filter((row) => row.contentId !== null || row.adId !== null),
+    (row) => row.contentId ?? row.adId ?? "sin-id",
+    (row) => row.contentName ?? row.adName ?? "Sin nombre",
+  )
     .sort(
       (left, right) =>
         (right.metrics.interactions ?? -1) - (left.metrics.interactions ?? -1) ||

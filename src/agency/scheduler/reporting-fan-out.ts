@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   assertIsoDate,
   assertReportingScope,
-  type HistoricalMetricLevel,
+  type PaidHistoricalMetricLevel,
   type ReportingScope,
 } from "../historical-data/index.js";
 import type { ReportingJobPayload } from "../worker/types.js";
@@ -35,7 +35,7 @@ export interface ReportingFanOutRequest extends ReportingScope {
   readonly reportEndDate: string;
   readonly ingestionStartDate: string;
   readonly ingestionEndDate: string;
-  readonly level: HistoricalMetricLevel;
+  readonly level: PaidHistoricalMetricLevel;
   readonly apiVersion: string;
   readonly attributionWindow?: string | null;
   readonly retentionDays?: number;
