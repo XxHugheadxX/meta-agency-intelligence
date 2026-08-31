@@ -147,6 +147,17 @@ function assertRuntimeResult(job: ReportingJobPayload, result: ReportingRuntimeR
   ) {
     throw new Error("Reporting runtime returned a mismatched tenant-scoped result");
   }
+  const organicResults = [
+    ...(result.organicIngestions ?? []),
+    ...(result.contentIngestions ?? []),
+  ];
+  if (organicResults.some((ingestion) =>
+    ingestion.scope.tenantId !== job.tenantId ||
+    ingestion.scope.workspaceId !== job.workspaceId ||
+    ingestion.startDate !== job.startDate ||
+    ingestion.endDate !== job.endDate)) {
+    throw new Error("Reporting runtime returned a mismatched organic ingestion result");
+  }
 }
 
 function assertReplayResult(job: ReportingJobPayload, result: AgencyReportingWorkerResult): void {
@@ -231,13 +242,21 @@ export class AgencyReportingWorker {
         ? await this.leaseOptions.admission.run(validatedJob, execute)
         : await execute();
       assertRuntimeResult(job, result);
+      const organicRows = (result.organicIngestions ?? [])
+        .reduce((total, ingestion) => total + ingestion.rowsWritten, 0);
+      const contentRows = (result.contentIngestions ?? [])
+        .reduce((total, ingestion) => total + ingestion.rowsWritten, 0);
+      const organicPages = (result.organicIngestions ?? [])
+        .reduce((total, ingestion) => total + ingestion.pagesRead, 0);
+      const contentPages = (result.contentIngestions ?? [])
+        .reduce((total, ingestion) => total + ingestion.pagesRead, 0);
       const response: AgencyReportingWorkerResult = {
         tenantId: job.tenantId,
         workspaceId: job.workspaceId,
         jobId: job.jobId,
         accountId: job.accountId,
-        rowsWritten: result.ingestion.rowsWritten,
-        pagesRead: result.ingestion.pagesRead,
+        rowsWritten: result.ingestion.rowsWritten + organicRows + contentRows,
+        pagesRead: result.ingestion.pagesRead + organicPages + contentPages,
         watermarkDate: result.ingestion.watermarkDate,
         runId: result.ingestion.runId,
         artifact: result.artifact,

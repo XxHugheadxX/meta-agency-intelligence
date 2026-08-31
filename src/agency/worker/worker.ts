@@ -77,6 +77,35 @@ export function assertReadOnlyConnection(connection: ResolvedIngestionConnection
   if (connection.scopes.some((scope) => FORBIDDEN_SCOPES.has(scope))) {
     throw new Error("Resolved Meta token carries a forbidden write scope");
   }
+  const required = new Set<string>();
+  const allowedAssetIds = new Set(connection.allowedAssetIds ?? []);
+  const seenAssets = new Set<string>();
+  for (const asset of connection.organicAssets ?? []) {
+    const assetKey = `${asset.platform}:${asset.assetId}`;
+    if (
+      !/^\d{1,32}$/.test(asset.assetId) ||
+      !allowedAssetIds.has(asset.assetId) ||
+      seenAssets.has(assetKey) ||
+      !asset.assetName.trim() ||
+      asset.currency !== connection.account.currency ||
+      asset.timezone !== connection.account.timezone ||
+      (asset.platform !== "facebook_page" && asset.platform !== "instagram")
+    ) {
+      throw new Error("Resolved organic asset connection is invalid");
+    }
+    seenAssets.add(assetKey);
+    required.add("read_insights");
+    if (asset.platform === "facebook_page") required.add("pages_read_engagement");
+    else {
+      required.add("instagram_basic");
+      required.add("instagram_manage_insights");
+    }
+  }
+  for (const scope of required) {
+    if (!connection.scopes.includes(scope)) {
+      throw new Error("Resolved Meta token lacks required organic reporting scopes");
+    }
+  }
 }
 
 function auditEvent(

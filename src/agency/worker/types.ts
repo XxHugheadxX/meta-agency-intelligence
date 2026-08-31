@@ -1,5 +1,11 @@
 import type { PaidHistoricalMetricLevel, ReportingScope } from "../historical-data/index.js";
-import type { IngestionAccount, InsightsIngestionResult } from "../ingestion/index.js";
+import type {
+  IngestionAccount,
+  InsightsIngestionResult,
+  OrganicAsset,
+  OrganicContentIngestionResult,
+  OrganicIngestionResult,
+} from "../ingestion/index.js";
 import type { StoredReportArtifact } from "../delivery/index.js";
 
 export interface IngestionJobPayload extends ReportingScope {
@@ -49,6 +55,8 @@ export interface ResolvedIngestionConnection {
   readonly accessToken: string;
   readonly scopes: readonly string[];
   readonly allowedAccountIds: readonly string[];
+  readonly allowedAssetIds?: readonly string[];
+  readonly organicAssets?: readonly OrganicAsset[];
 }
 
 export interface IngestionConnectionResolver {
@@ -64,6 +72,8 @@ export interface IngestionRuntime {
 
 export interface ReportingRuntimeResult {
   readonly ingestion: InsightsIngestionResult;
+  readonly organicIngestions?: readonly OrganicIngestionResult[];
+  readonly contentIngestions?: readonly OrganicContentIngestionResult[];
   readonly artifact: StoredReportArtifact;
 }
 

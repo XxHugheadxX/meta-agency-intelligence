@@ -134,10 +134,30 @@ describe("agency reporting worker", () => {
     const artifacts = new InMemoryReportArtifactStore(
       () => Date.parse("2026-08-31T08:00:00.000Z"),
     );
+    const historical = new InMemoryHistoricalDataRepository();
     const calls: Array<{ path: string; token: string }> = [];
     const client: ReadOnlyMetaClient = {
       async get<T>(path: string) {
         calls.push({ path, token: getAccessToken() });
+        if (path === "/300/insights") {
+          return { data: [{
+            name: "reach",
+            values: [{ value: 700, end_time: "2026-08-24T23:59:59+0000" }],
+          }] } as T;
+        }
+        if (path === "/300/media") {
+          return { data: [{
+            id: "700",
+            caption: "Reel Orgánico",
+            media_type: "VIDEO",
+            media_product_type: "REELS",
+            timestamp: "2026-08-24T12:00:00.000Z",
+            permalink: "https://www.instagram.com/reel/synthetic/",
+          }] } as T;
+        }
+        if (path === "/700/insights") {
+          return { data: [{ name: "reach", values: [{ value: 500 }] }] } as T;
+        }
         return {
           data: [{
             account_id: "100",
@@ -160,13 +180,30 @@ describe("agency reporting worker", () => {
       },
     };
     const runtime = new MetaAgencyReportingRuntime(
-      new InMemoryHistoricalDataRepository(),
+      historical,
       new InMemoryIngestionCheckpointRepository(),
       artifacts,
       () => client,
       () => "2026-08-31T08:00:00.000Z",
     );
-    const context = workerHarness(runtime);
+    const organicConnection: ResolvedIngestionConnection = {
+      ...connection,
+      scopes: [
+        "ads_read",
+        "read_insights",
+        "instagram_basic",
+        "instagram_manage_insights",
+      ],
+      allowedAssetIds: ["300"],
+      organicAssets: [{
+        assetId: "300",
+        assetName: "Instagram Norte",
+        platform: "instagram",
+        currency: "BOB",
+        timezone: "America/La_Paz",
+      }],
+    };
+    const context = workerHarness(runtime, organicConnection);
 
     const result = await context.worker.run({
       authorization: "Bearer synthetic-oidc",
@@ -174,15 +211,19 @@ describe("agency reporting worker", () => {
       signature: "signed-signature",
     });
 
-    expect(calls).toEqual([{
-      path: "/act_100/insights",
-      token: connection.accessToken,
-    }]);
+    expect(calls.map(({ path }) => path)).toEqual([
+      "/act_100/insights",
+      "/300/insights",
+      "/300/media",
+      "/700/insights",
+    ]);
+    expect(calls.every(({ token }) => token === connection.accessToken)).toBe(true);
     expect(result).toMatchObject({
       ...tenantA,
       jobId: job.jobId,
       accountId: "act_100",
-      rowsWritten: 1,
+      rowsWritten: 3,
+      pagesRead: 3,
       artifact: {
         ...tenantA,
         filename: "meta-agency-report-2026-08-24-to-2026-08-30.xlsx",
@@ -192,6 +233,15 @@ describe("agency reporting worker", () => {
     expect(result.artifact.artifactId).toMatch(/^[a-f0-9]{64}$/);
     expect(artifacts.readBytes(tenantA, result.artifact.artifactId)?.slice(0, 2))
       .toEqual(Uint8Array.of(0x50, 0x4b));
+    const rows = await historical.list(tenantA, {
+      startDate: job.startDate,
+      endDate: job.endDate,
+    });
+    expect(rows.map(({ level }) => level).sort()).toEqual(["ad", "content", "organic_account"]);
+    const workbook = new TextDecoder().decode(
+      artifacts.readBytes(tenantA, result.artifact.artifactId),
+    );
+    expect(workbook).toContain("Reel Orgánico");
     await expect(artifacts.getMetadata(tenantB, result.artifact.artifactId))
       .resolves.toBeNull();
     expect(context.events.map((event) => event.outcome)).toEqual(["started", "succeeded"]);
@@ -235,6 +285,60 @@ describe("agency reporting worker", () => {
     });
   });
 
+  it("rejects organic assets without their required read-only scopes", async () => {
+    const runtime = { run: vi.fn() } as unknown as MetaAgencyReportingRuntime;
+    const context = workerHarness(runtime, {
+      ...connection,
+      allowedAssetIds: ["300"],
+      organicAssets: [{
+        assetId: "300",
+        assetName: "Instagram Norte",
+        platform: "instagram",
+        currency: "BOB",
+        timezone: "America/La_Paz",
+      }],
+    });
+
+    await expect(context.worker.run({
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    })).rejects.toThrow("rejected or failed");
+    expect(runtime.run).not.toHaveBeenCalled();
+    expect(context.events.at(-1)).toMatchObject({
+      outcome: "failed",
+      code: "REPORTING_REJECTED",
+    });
+  });
+
+  it("rejects an organic asset outside the resolved token allowlist", async () => {
+    const runtime = { run: vi.fn() } as unknown as MetaAgencyReportingRuntime;
+    const context = workerHarness(runtime, {
+      ...connection,
+      scopes: [
+        "ads_read",
+        "read_insights",
+        "instagram_basic",
+        "instagram_manage_insights",
+      ],
+      allowedAssetIds: [],
+      organicAssets: [{
+        assetId: "300",
+        assetName: "Instagram Norte",
+        platform: "instagram",
+        currency: "BOB",
+        timezone: "America/La_Paz",
+      }],
+    });
+
+    await expect(context.worker.run({
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    })).rejects.toThrow("rejected or failed");
+    expect(runtime.run).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a runtime returns an artifact from another tenant", async () => {
     const runtime = {
       run: vi.fn().mockResolvedValue({
@@ -266,6 +370,35 @@ describe("agency reporting worker", () => {
           createdAt: "2026-08-31T08:00:00.000Z",
           expiresAt: "2026-09-30T08:00:00.000Z",
         },
+      }),
+    } as unknown as MetaAgencyReportingRuntime;
+    const context = workerHarness(runtime);
+
+    await expect(context.worker.run({
+      authorization: "Bearer synthetic-oidc",
+      payload: "signed-payload",
+      signature: "signed-signature",
+    })).rejects.toThrow("rejected or failed");
+    expect(context.events.at(-1)).toMatchObject({
+      outcome: "failed",
+      code: "REPORTING_REJECTED",
+    });
+  });
+
+  it("fails closed when an organic result belongs to another tenant", async () => {
+    const runtime = {
+      run: vi.fn().mockResolvedValue({
+        ...runtimeResult,
+        organicIngestions: [{
+          scope: tenantB,
+          platform: "instagram",
+          assetId: "300",
+          startDate: job.startDate,
+          endDate: job.endDate,
+          pagesRead: 1,
+          rowsWritten: 1,
+          runId: `${job.jobId}:organic:instagram:300`,
+        }],
       }),
     } as unknown as MetaAgencyReportingRuntime;
     const context = workerHarness(runtime);

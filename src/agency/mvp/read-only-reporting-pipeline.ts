@@ -5,6 +5,12 @@ import {
 } from "../excel/excel-report.js";
 import {
   AgencyInsightsIngestionService,
+  AgencyOrganicContentIngestionService,
+  AgencyOrganicIngestionService,
+  type OrganicContentIngestionRequest,
+  type OrganicContentIngestionResult,
+  type OrganicIngestionRequest,
+  type OrganicIngestionResult,
   type InsightsIngestionRequest,
   type InsightsIngestionResult,
 } from "../ingestion/index.js";
@@ -16,12 +22,16 @@ import {
 
 export interface GenerateReadOnlyReportInput {
   readonly ingestion: InsightsIngestionRequest;
+  readonly organicIngestions?: readonly OrganicIngestionRequest[];
+  readonly contentIngestions?: readonly OrganicContentIngestionRequest[];
   readonly period: ReportPeriod;
   readonly excel?: GenerateExcelReportOptions;
 }
 
 export interface ReadOnlyReportingResult {
   readonly ingestion: InsightsIngestionResult;
+  readonly organicIngestions: readonly OrganicIngestionResult[];
+  readonly contentIngestions: readonly OrganicContentIngestionResult[];
   readonly report: AgencyReport;
   readonly excel: AgencyExcelReport;
 }
@@ -31,6 +41,8 @@ export class AgencyReadOnlyReportingPipeline {
     private readonly ingestion: AgencyInsightsIngestionService,
     private readonly reporting: AgencyReportingService,
     private readonly excel = new AgencyExcelReportGenerator(),
+    private readonly organicIngestion?: AgencyOrganicIngestionService,
+    private readonly contentIngestion?: AgencyOrganicContentIngestionService,
   ) {}
 
   async run(input: GenerateReadOnlyReportInput): Promise<ReadOnlyReportingResult> {
@@ -41,11 +53,21 @@ export class AgencyReadOnlyReportingPipeline {
       throw new Error("The ingestion window must fully cover the requested report period");
     }
     const ingestion = await this.ingestion.run(input.ingestion);
+    const organicIngestions: OrganicIngestionResult[] = [];
+    for (const request of input.organicIngestions ?? []) {
+      if (!this.organicIngestion) throw new Error("Organic ingestion service is not configured");
+      organicIngestions.push(await this.organicIngestion.run(request));
+    }
+    const contentIngestions: OrganicContentIngestionResult[] = [];
+    for (const request of input.contentIngestions ?? []) {
+      if (!this.contentIngestion) throw new Error("Organic content ingestion service is not configured");
+      contentIngestions.push(await this.contentIngestion.run(request));
+    }
     const report = await this.reporting.createUnifiedReport(input.ingestion.scope, {
       period: input.period,
       paidGranularity: input.ingestion.level,
     });
     const excel = this.excel.generate(report, input.excel);
-    return { ingestion, report, excel };
+    return { ingestion, organicIngestions, contentIngestions, report, excel };
   }
 }

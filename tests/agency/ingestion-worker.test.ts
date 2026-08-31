@@ -188,15 +188,28 @@ describe("agency ingestion worker", () => {
       kind: "ad_account",
       assetId: "act_100",
     });
+    await bindings.save({
+      workspaceId: tenantA.workspaceId,
+      kind: "instagram",
+      assetId: "300",
+      assetName: "Instagram Norte",
+      reportingAccountId: "act_100",
+    });
+    await bindings.save({
+      workspaceId: tenantA.workspaceId,
+      kind: "page",
+      assetId: "400",
+      reportingAccountId: "act_999",
+    });
     const resolveToken = vi.fn().mockResolvedValue({
       accessToken: connection.accessToken,
       workspaceId: tenantA.workspaceId,
       tokenName: "reporting",
-      scopes: ["ads_read"],
+      scopes: ["ads_read", "read_insights", "instagram_basic", "instagram_manage_insights"],
       granularScopes: [],
       dataAccessExpiresAt: null,
       allowedAccountIds: ["act_100"],
-      allowedAssetIds: [],
+      allowedAssetIds: ["300", "400"],
     });
     const tokens = { resolveToken } as unknown as MetaTokenRepo;
     const resolver = new RepositoryIngestionConnectionResolver(
@@ -211,7 +224,17 @@ describe("agency ingestion worker", () => {
     expect(resolved).toMatchObject({
       scope: { tenantId: tenantA.tenantId, workspaceId: tenantA.workspaceId },
       account: { accountId: "act_100" },
-      scopes: ["ads_read"],
+      scopes: ["ads_read", "read_insights", "instagram_basic", "instagram_manage_insights"],
+      allowedAssetIds: ["300"],
+      organicAssets: [{
+        assetId: "300",
+        assetName: "Instagram Norte",
+        platform: "instagram",
+        currency: "BOB",
+        timezone: "America/La_Paz",
+        agentId: null,
+        agentName: null,
+      }],
     });
     expect(resolved.scope).toEqual(tenantA);
     await expect(resolver.resolve(tenantB, "act_100")).rejects.toThrow("Workspace");

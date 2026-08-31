@@ -6,7 +6,7 @@ El worker de reporting ejecuta una cadena única y read-only:
 OIDC del scheduler + payload firmado
   → tenant/workspace/account binding
   → token Meta con ads_read y sin scopes de escritura
-  → ingesta GET-only
+  → ingesta GET-only de Ads + activos orgánicos asociados a la cuenta
   → histórico tenant-scoped
   → reporte semanal o mensual
   → XLSX
@@ -18,7 +18,12 @@ OIDC del scheduler + payload firmado
 - `AgencyReportingWorker` valida identidad, firma, periodo, tenant y scopes antes
   de iniciar la ingesta.
 - `MetaAgencyReportingRuntime` conecta la ingesta con histórico, reporting,
-  Excel y entrega del artefacto.
+  Excel y entrega del artefacto. Ejecuta primero Ads, luego métricas de cuenta
+  para Page/Instagram y finalmente contenido Instagram; el workbook sólo se
+  crea cuando las ingestas configuradas terminan correctamente.
+- Los contadores `rowsWritten` y `pagesRead` del resultado suman Ads, orgánico
+  account-level y contenido. Antes de agregarlos, el worker vuelve a validar que
+  todos los resultados pertenezcan al tenant/workspace y ventana del job.
 - `createFirestoreAgencyReportingRuntime` crea el runtime con histórico y
   checkpoints persistentes en Firestore.
 - `FirestoreReportArtifactStore` guarda metadata bajo

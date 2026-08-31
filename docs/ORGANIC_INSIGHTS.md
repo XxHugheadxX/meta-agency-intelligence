@@ -61,6 +61,25 @@ el tipo de contenido y la aprobación de la aplicación.
 2. Confirmar el catálogo exacto por IMAGE, VIDEO, REELS y CAROUSEL.
 3. Implementar Facebook post-level sólo después de validar métricas y respuesta
    actuales; no reutilizar a ciegas el contrato de Instagram.
-4. Añadir checkpoints incrementales para contenido y ejecución programada.
-5. Integrar las tres ingestas dentro del mismo job programado; la composición
-   segura del workbook ya está implementada en `UNIFIED_REPORTING.md`.
+4. Añadir checkpoints incrementales específicos para contenido.
+5. Validar la ejecución programada completa contra Meta Test App. La runtime ya
+   ejecuta Ads, cuenta orgánica y contenido dentro del mismo job firmado.
+
+## Ejecución programada
+
+Un binding orgánico sólo participa en un job cuando declara explícitamente
+`reportingAccountId`. El valor debe ser la cuenta Ads `act_<digits>` que recibirá
+ese activo en su reporte. Un Page o Instagram sin asociación se ignora en el
+worker; nunca se asigna por heurística a una de las aproximadamente 20 cuentas.
+
+Además, el resolver intersecta tres controles antes de exponer el activo a la
+runtime:
+
+1. binding activo del workspace;
+2. `reportingAccountId` igual a la cuenta del job firmado;
+3. `assetId` presente en `allowedAssetIds` del token cifrado del workspace.
+
+La runtime exige `ads_read` para Ads. Si existe Page también exige
+`read_insights` y `pages_read_engagement`; si existe Instagram exige
+`read_insights`, `instagram_basic` e `instagram_manage_insights`. Cualquier
+scope de escritura de la denylist mantiene el rechazo total del job.

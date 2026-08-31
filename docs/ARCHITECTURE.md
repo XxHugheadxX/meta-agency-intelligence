@@ -40,7 +40,12 @@ sumar audiencias potencialmente superpuestas; ver `UNIFIED_REPORTING.md`.
 `src/agency/worker/` contiene la orquestación inicial del worker: exige una
 identidad de workload verificada, valida un payload firmado con clave pública,
 resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
-ejecuta Ads Insights dentro de un contexto backend GET-only. El endpoint interno
+ejecuta Ads Insights dentro de un contexto backend GET-only. Cuando un binding
+de Page/Instagram declara el `reportingAccountId` del job, el mismo worker
+ejecuta también orgánico account-level y contenido Instagram antes de generar
+el workbook. El resolver intersecta binding, cuenta y activos permitidos por el
+token; no asigna activos automáticamente entre las cuentas de la agencia. El
+endpoint interno
 opt-in autentica Google OIDC antes de parsear el payload firmado. Un trigger OIDC
 separado calcula el último período completo y compone Firestore, firma KMS y
 publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compone
@@ -48,9 +53,10 @@ control plane, tokens cifrados, histórico, artefactos, auditoría y leases
 tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
 ni se validaron GCS/IAM/CMEK en staging. La ingesta orgánica account-level de
 Pages/Instagram y content-level de Instagram ya tiene lectores GET-only,
-normalización y aislamiento probados con fixtures. Los niveles permanecen
-separados para evitar doble conteo. Falta Facebook post-level y validar los
-contratos contra una Meta Test App; ver `ORGANIC_INSIGHTS.md`.
+normalización, aislamiento y orquestación programada probados con fixtures. Los
+niveles permanecen separados para evitar doble conteo. Falta Facebook
+post-level y validar los contratos contra una Meta Test App; ver
+`ORGANIC_INSIGHTS.md`.
 
 `src/agency/scheduler/` aporta control de concurrencia global y por workspace,
 HTTP 429 con `Retry-After`, política conservadora de reintentos y registros

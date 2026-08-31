@@ -2,6 +2,7 @@ import type { AssetBindingRepo } from "../../store/asset-binding-repo.js";
 import type { MetaTokenRepo } from "../../store/meta-token-repo.js";
 import { assertReportingScope, type ReportingScope } from "../historical-data/index.js";
 import type { IngestionAccount } from "../ingestion/index.js";
+import type { OrganicAsset } from "../ingestion/index.js";
 import type {
   IngestionConnectionResolver,
   ResolvedIngestionConnection,
@@ -84,6 +85,25 @@ export class RepositoryIngestionConnectionResolver implements IngestionConnectio
     if (token.workspaceId !== scope.workspaceId || !allowedAccountIds.includes(accountId)) {
       throw new Error("Resolved Meta token is not authorized for the ingestion account");
     }
+    const allowedAssetIds = new Set(token.allowedAssetIds);
+    const organicBindings = activeBindings
+      .filter((binding) =>
+        (binding.kind === "page" || binding.kind === "instagram") &&
+        binding.reportingAccountId === accountId &&
+        allowedAssetIds.has(binding.assetId));
+    if (organicBindings.some(({ assetId }) => !/^\d{1,32}$/.test(assetId))) {
+      throw new Error("Organic asset connection metadata is invalid");
+    }
+    const organicAssets: OrganicAsset[] = organicBindings
+      .map((binding) => ({
+        assetId: binding.assetId,
+        assetName: binding.assetName?.trim() || `${binding.kind} ${binding.assetId}`,
+        platform: binding.kind === "page" ? "facebook_page" : "instagram",
+        currency: account.currency,
+        timezone: account.timezone,
+        agentId: account.agentId ?? null,
+        agentName: account.agentName ?? null,
+      }));
 
     return {
       scope: {
@@ -101,6 +121,8 @@ export class RepositoryIngestionConnectionResolver implements IngestionConnectio
       accessToken: token.accessToken,
       scopes: [...token.scopes],
       allowedAccountIds,
+      allowedAssetIds: organicAssets.map(({ assetId }) => assetId),
+      organicAssets,
     };
   }
 }

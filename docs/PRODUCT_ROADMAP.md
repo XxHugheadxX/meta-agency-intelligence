@@ -132,7 +132,11 @@ devuelve `Retry-After`; también existen políticas fail-closed de retry y recor
 dead-letter sin payload, firma o autorización. Faltan aprovisionar y validar
 bucket/IAM/CMEK e identidades reales. El código ya incluye trigger OIDC,
 fan-out Firestore, firma KMS, publicación Pub/Sub y recepción push; falta crear
-la cola durable y DLQ en staging y ensayar la reanudación operativa.
+la cola durable y DLQ en staging y ensayar la reanudación operativa. El runtime
+del job ya compone Ads, orgánico account-level y contenido Instagram antes del
+Excel. Cada activo orgánico requiere un binding explícito a la cuenta Ads y la
+intersección con `allowedAssetIds`; así se evita repetir todos los activos en
+cada uno de los aproximadamente 20 jobs.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
@@ -186,5 +190,5 @@ Orden recomendado:
 4. Añadir Facebook post-level y validar todos los lectores orgánicos contra una
    Meta Test App.
 5. Ensayar rotación y restore de claves con documentos ficticios.
-6. Implementar scheduler, backpressure, reintentos coordinados y dead-letter
-   queue antes de escalar a veinte cuentas.
+6. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya
+   implementado antes de escalar a veinte cuentas.
