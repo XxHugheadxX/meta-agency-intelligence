@@ -210,9 +210,11 @@ Orden recomendado:
 1. Revisar las ramas encadenadas y decidir su integración sin merge automático.
 2. Aprovisionar el bucket GCS privado y validar IAM, CMEK, lifecycle y descarga
    proxy en staging con archivos sintéticos.
-3. Ejecutar contract tests en una Meta test app sin cuentas reales.
-4. Validar todos los lectores orgánicos, incluido Facebook post-level, contra
-   una Meta Test App.
+3. Ejecutar el arnés opt-in ya implementado en
+   `tests/contract/meta-organic-test-app.contract.test.ts` contra una Meta Test
+   App sin cuentas reales. Permanece omitido en CI y en la suite normal.
+4. Revisar el resultado del contrato de todos los lectores orgánicos, incluido
+   Facebook post-level, antes de autorizar cualquier activo real.
 5. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
    claves y documentos ficticios ya está automatizado.
 6. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya

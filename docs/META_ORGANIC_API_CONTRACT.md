@@ -44,3 +44,36 @@ para confirmar por versión: soporte de `since`/`until`, forma time-series de
 account-level, forma lifetime de post-level, posts sin mensaje, paginación y
 respuesta cuando una métrica no está disponible. Un error de métrica debe
 fallar cerrado; no debe activar un fallback silencioso a métricas retiradas.
+
+## Ejecución segura en PowerShell
+
+Usar exclusivamente activos no productivos con al menos una publicación por
+plataforma dentro del rango. No pegar el token en el chat ni guardarlo en un
+archivo del repositorio.
+
+```powershell
+$env:RUN_META_ORGANIC_CONTRACT_TESTS = "true"
+$env:META_CONTRACT_ACCESS_TOKEN = Read-Host -MaskInput "Token temporal de la Meta Test App"
+$env:META_CONTRACT_PAGE_ID = "ID_NUMERICO_PAGE_TEST"
+$env:META_CONTRACT_FACEBOOK_POST_ID = "ID_PAGE_TEST_ID_POST_TEST"
+$env:META_CONTRACT_INSTAGRAM_ID = "ID_NUMERICO_INSTAGRAM_TEST"
+$env:META_CONTRACT_INSTAGRAM_MEDIA_ID = "ID_NUMERICO_MEDIA_TEST"
+$env:META_CONTRACT_API_VERSION = "v25.0"
+$env:META_CONTRACT_START_DATE = "AAAA-MM-DD"
+$env:META_CONTRACT_END_DATE = "AAAA-MM-DD"
+
+.\node_modules\.bin\vitest.cmd run tests\contract\meta-organic-test-app.contract.test.ts --pool=threads --maxWorkers=1
+
+Remove-Item Env:RUN_META_ORGANIC_CONTRACT_TESTS
+Remove-Item Env:META_CONTRACT_ACCESS_TOKEN
+Remove-Item Env:META_CONTRACT_PAGE_ID
+Remove-Item Env:META_CONTRACT_FACEBOOK_POST_ID
+Remove-Item Env:META_CONTRACT_INSTAGRAM_ID
+Remove-Item Env:META_CONTRACT_INSTAGRAM_MEDIA_ID
+Remove-Item Env:META_CONTRACT_API_VERSION
+Remove-Item Env:META_CONTRACT_START_DATE
+Remove-Item Env:META_CONTRACT_END_DATE
+```
+
+El archivo se omite en la suite normal. Sólo realiza GET, usa el cliente
+read-only compartido y falla si un post/media no pertenece al activo permitido.
