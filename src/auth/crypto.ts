@@ -121,6 +121,21 @@ export function decryptToken(payload: EncryptedPayload, aad?: string): string {
   return plaintext.toString("utf8");
 }
 
+/**
+ * Re-encrypt an existing payload with the currently active key version.
+ *
+ * The source key remains selected from payload.keyVersion, so rotations can
+ * use TOKEN_ENCRYPTION_OLD_KEYS for dual-read while all new ciphertext is
+ * written with TOKEN_ENCRYPTION_KEY_VERSION. AAD must be the stable binding
+ * for the document being migrated.
+ */
+export function reencryptToken(
+  payload: EncryptedPayload,
+  aad?: string,
+): EncryptedPayload {
+  return encryptToken(decryptToken(payload, aad), aad);
+}
+
 export function resetKeyCacheForTests(): void {
   cachedKeys.clear();
 }

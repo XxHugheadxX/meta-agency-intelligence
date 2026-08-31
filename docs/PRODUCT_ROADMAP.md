@@ -209,6 +209,7 @@ Orden recomendado:
 3. Ejecutar contract tests en una Meta test app sin cuentas reales.
 4. Añadir Facebook post-level y validar todos los lectores orgánicos contra una
    Meta Test App.
-5. Ensayar rotación y restore de claves con documentos ficticios.
+5. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
+   claves y documentos ficticios ya está automatizado.
 6. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya
    implementado antes de escalar a veinte cuentas.
