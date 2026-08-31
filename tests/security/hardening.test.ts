@@ -259,6 +259,47 @@ describe("security hardening", () => {
     });
   });
 
+  it("binds Facebook posts and Instagram media to their allowed parent assets", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(mockFetchResponse({ data: [] }))
+      .mockResolvedValueOnce(mockFetchResponse({ error: { code: 100 } }, { status: 400 }))
+      .mockResolvedValueOnce(mockFetchResponse({ owner: { id: "400" } }))
+      .mockResolvedValueOnce(mockFetchResponse({ data: [] }))
+      .mockResolvedValueOnce(mockFetchResponse({ error: { code: 100 } }, { status: 400 }))
+      .mockResolvedValueOnce(mockFetchResponse({ owner: { id: "999" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new MetaApiClient({ mode: "read_only", maxRetries: 0 });
+    const tenantContext = {
+      accessToken: "tenant-a-secret-token",
+      tenantId: "workspace-a",
+      workspaceId: "workspace-a",
+      allowedAccountIds: new Set(["act_100"]),
+      allowedAssetIds: new Set(["200", "400"]),
+      allowedPageIds: new Set(["200"]),
+      allowedInstagramIds: new Set(["400"]),
+    };
+
+    await requestContext.run(tenantContext, async () => {
+      await expect(client.get("/200_300/insights", { metric: "views" }))
+        .resolves.toEqual({ data: [] });
+      await expect(client.get("/999_300/insights", { metric: "views" }))
+        .rejects.toThrow(/not assigned/);
+      await expect(client.get("/700/insights", { metric: "views" }))
+        .resolves.toEqual({ data: [] });
+      await expect(client.get("/701/insights", { metric: "views" }))
+        .rejects.toThrow(/not assigned/);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    const urls = fetchMock.mock.calls.map(([url]) => new URL(String(url)));
+    expect(urls[0]?.pathname).toMatch(/\/200_300\/insights$/);
+    expect(urls[1]?.searchParams.get("fields")).toBe("account_id");
+    expect(urls[2]?.searchParams.get("fields")).toBe("owner");
+    expect(urls[3]?.pathname).toMatch(/\/700\/insights$/);
+    expect(urls[4]?.searchParams.get("fields")).toBe("account_id");
+    expect(urls[5]?.searchParams.get("fields")).toBe("owner");
+  });
+
   it("rejects token headers and missing tenant identity on protected MCP requests", async () => {
     const middleware = buildMetaTokenMiddleware(new URL("https://mcp.example"), true);
 
