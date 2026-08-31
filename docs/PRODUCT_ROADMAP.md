@@ -145,6 +145,11 @@ cada uno de los aproximadamente 20 jobs.
 
 **Gate:** prueba de carga equivalente a 20 cuentas y recuperación ensayada.
 
+La simulación local de 20 cuentas ya cubre concurrencia por workspace,
+backpressure, fallo transitorio, liberación de lease y replay idempotente; ver
+`TWENTY_ACCOUNT_LOAD_TEST.md`. El gate permanece abierto hasta repetirla en
+staging con Pub/Sub, Firestore, GCS y métricas de recursos reales.
+
 ## Fase 6 — Recomendaciones
 
 **Estado:** reglas read-only explicables implementadas; falta evaluación offline
