@@ -27,15 +27,24 @@ recursos se validan antes de inicializar Firestore.
 ## Topología propuesta
 
 ```text
-Cloud Scheduler / fan-out firmado
+Cloud Scheduler + OIDC de trigger
+  → POST /internal/agency/reporting/schedules
+  → período anterior completo + fan-out tenant-scoped
+  → firma KMS por cuenta
   → Pub/Sub topic: agency-reporting-jobs
-  → push subscription autenticada con OIDC
+  → push subscription + OIDC de push independiente
   → POST /internal/agency/reporting/jobs
   → admisión global/workspace + lease Firestore
   → worker read-only
   → ACK 200 o NACK 4xx/429
   → dead-letter topic tras intentos agotados
 ```
+
+El trigger acepta exactamente `tenantId`, `workspaceId` y `reportKind`. El
+servidor calcula la semana o mes anterior completo en
+`AGENCY_REPORTING_TIME_ZONE`, añade un lookback acotado para ingesta y no acepta
+fechas arbitrarias desde Cloud Scheduler. La respuesta contiene sólo período y
+cantidad de jobs, no identificadores del tenant.
 
 Pub/Sub ofrece entrega al menos una vez. La idempotencia no depende de
 `messageId`: se basa en el payload firmado, su fingerprint y el lease
@@ -102,6 +111,8 @@ gcloud pubsub subscriptions create agency-reporting-push `
 
 - Push service account: `roles/run.invoker` solamente sobre el servicio Cloud
   Run de reporting.
+- Trigger service account: identidad dedicada para invocar únicamente el
+  endpoint de schedules; no reutilizar la identidad push ni la runtime.
 - Fan-out publisher: `roles/pubsub.publisher` solamente sobre
   `agency-reporting-jobs`.
 - Pub/Sub service agent: capacidad de generar el OIDC de la push service account.
@@ -129,7 +140,8 @@ leases, circuit breakers y límites internos siguen siendo obligatorios.
 ## Gate antes de staging
 
 1. Revisar IAM con Policy Analyzer/Simulator.
-2. Confirmar que Cloud Run no permite invocación pública.
+2. Confirmar que los endpoints internos no son utilizables sin OIDC. Si el mismo
+   servicio expone OAuth público, la frontera interna sigue protegida en la app.
 3. Verificar issuer, audience, email y `sub` de la push service account.
 4. Publicar únicamente envelopes sintéticos firmados.
 5. Forzar duplicados, 429, firma inválida y agotamiento hasta DLQ.

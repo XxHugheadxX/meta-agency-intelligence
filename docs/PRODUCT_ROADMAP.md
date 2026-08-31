@@ -124,8 +124,9 @@ repositorios Firestore del control plane y leases con fencing y replay
 idempotente. La admisión local ya limita concurrencia global/por workspace y
 devuelve `Retry-After`; también existen políticas fail-closed de retry y records
 dead-letter sin payload, firma o autorización. Faltan aprovisionar y validar
-bucket/IAM/CMEK e identidad reales, y conectar una cola durable con persistencia
-DLQ y reanudación operativa.
+bucket/IAM/CMEK e identidades reales. El código ya incluye trigger OIDC,
+fan-out Firestore, firma KMS, publicación Pub/Sub y recepción push; falta crear
+la cola durable y DLQ en staging y ensayar la reanudación operativa.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.

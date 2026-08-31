@@ -37,8 +37,10 @@ y Firestore; las pruebas usan exclusivamente respuestas sintéticas.
 identidad de workload verificada, valida un payload firmado con clave pública,
 resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
 ejecuta Ads Insights dentro de un contexto backend GET-only. El endpoint interno
-opt-in autentica Google OIDC antes de parsear el payload firmado; el bootstrap
-compone control plane, tokens cifrados, histórico, artefactos, auditoría y leases
+opt-in autentica Google OIDC antes de parsear el payload firmado. Un trigger OIDC
+separado calcula el último período completo y compone Firestore, firma KMS y
+publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compone
+control plane, tokens cifrados, histórico, artefactos, auditoría y leases
 tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
 ni se validaron GCS/IAM/CMEK en staging. Tampoco se implementó la ingesta orgánica
 de Pages/Instagram ni se validaron contratos contra una Meta test app.

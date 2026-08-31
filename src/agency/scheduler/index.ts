@@ -7,3 +7,4 @@ export * from "./cloud-kms-signer.js";
 export * from "./pubsub-publisher.js";
 export * from "./reporting-scheduler-config.js";
 export * from "./reporting-scheduler-bootstrap.js";
+export * from "./reporting-schedule-http-handler.js";

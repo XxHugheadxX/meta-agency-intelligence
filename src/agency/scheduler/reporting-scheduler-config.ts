@@ -6,6 +6,14 @@ export type ReportingSchedulerConfig =
       readonly enabled: true;
       readonly signingKeyVersion: string;
       readonly pubSubTopic: string;
+      readonly triggerAudience: string;
+      readonly triggerServiceAccountEmail: string;
+      readonly triggerServiceAccountSubject: string;
+      readonly timeZone: string;
+      readonly apiVersion: string;
+      readonly attributionWindow: string | null;
+      readonly retentionDays: number;
+      readonly ingestionLookbackDays: number;
     };
 
 function value(env: NodeJS.ProcessEnv, key: string): string {
@@ -26,6 +34,20 @@ function firestoreConfigured(env: NodeJS.ProcessEnv): boolean {
   );
 }
 
+function integerSetting(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const resolved = Number(value(env, key) || String(fallback));
+  if (!Number.isInteger(resolved) || resolved < minimum || resolved > maximum) {
+    throw new Error(`${key} must be between ${minimum} and ${maximum}`);
+  }
+  return resolved;
+}
+
 export function resolveReportingSchedulerConfig(
   security: SecurityConfig,
   env: NodeJS.ProcessEnv = process.env,
@@ -44,9 +66,40 @@ export function resolveReportingSchedulerConfig(
   if (!firestoreConfigured(env)) {
     throw new Error("Agency reporting scheduler requires Firestore");
   }
+  const timeZone = required(env, "AGENCY_REPORTING_TIME_ZONE");
+  try {
+    new Intl.DateTimeFormat("en", { timeZone }).format(new Date(0));
+  } catch {
+    throw new Error("AGENCY_REPORTING_TIME_ZONE must be a valid IANA time zone");
+  }
+  const apiVersion = required(env, "META_API_VERSION");
+  if (!/^v[0-9]+[.][0-9]+$/.test(apiVersion)) {
+    throw new Error("META_API_VERSION must use vN.N format");
+  }
+  const attributionWindow = value(env, "AGENCY_REPORTING_ATTRIBUTION_WINDOW") || "7d_click";
+  if (attributionWindow.length > 64) {
+    throw new Error("AGENCY_REPORTING_ATTRIBUTION_WINDOW is invalid");
+  }
   return {
     enabled: true,
     signingKeyVersion: required(env, "AGENCY_REPORTING_SIGNING_KEY_VERSION"),
     pubSubTopic: required(env, "AGENCY_REPORTING_PUBSUB_TOPIC"),
+    triggerAudience: required(env, "AGENCY_REPORTING_TRIGGER_AUDIENCE"),
+    triggerServiceAccountEmail: required(
+      env,
+      "AGENCY_REPORTING_TRIGGER_SERVICE_ACCOUNT",
+    ),
+    triggerServiceAccountSubject: required(env, "AGENCY_REPORTING_TRIGGER_SUBJECT"),
+    timeZone,
+    apiVersion,
+    attributionWindow,
+    retentionDays: integerSetting(env, "AGENCY_REPORTING_RETENTION_DAYS", 90, 1, 365),
+    ingestionLookbackDays: integerSetting(
+      env,
+      "AGENCY_REPORTING_INGESTION_LOOKBACK_DAYS",
+      2,
+      0,
+      30,
+    ),
   };
 }

@@ -71,6 +71,11 @@ import {
   createReportingJobHttpRouter,
   type ReportingJobEndpointDependencies,
 } from "../agency/worker/index.js";
+import {
+  createReportingScheduleEndpointDependencies,
+  createReportingScheduleHttpRouter,
+  type ReportingScheduleEndpointDependencies,
+} from "../agency/scheduler/index.js";
 
 interface PendingAuth {
   fbUserId: string;
@@ -512,7 +517,10 @@ export function buildMetaTokenMiddleware(
 export async function startHttpTransport(
   createServer: () => McpServer,
   port: number,
-  options: { readonly reportingJobs?: ReportingJobEndpointDependencies } = {},
+  options: {
+    readonly reportingJobs?: ReportingJobEndpointDependencies;
+    readonly reportingSchedules?: ReportingScheduleEndpointDependencies;
+  } = {},
 ): Promise<void> {
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
@@ -523,6 +531,11 @@ export async function startHttpTransport(
       getDb: getFirestore,
       security: config,
       serverUrl,
+    }) ?? undefined;
+  const configuredReportingSchedules = options.reportingSchedules ??
+    createReportingScheduleEndpointDependencies({
+      getDb: getFirestore,
+      security: config,
     }) ?? undefined;
 
   app.disable("x-powered-by");
@@ -580,6 +593,18 @@ export async function startHttpTransport(
       createReportingJobHttpRouter(
         configuredReportingJobs.worker,
         configuredReportingJobs.identities,
+      ),
+    );
+  }
+
+  if (configuredReportingSchedules) {
+    app.use(
+      "/internal/agency/reporting/schedules",
+      createRateLimiter(10, 60 * 60 * 1000),
+      createReportingScheduleHttpRouter(
+        configuredReportingSchedules.scheduler,
+        configuredReportingSchedules.identities,
+        configuredReportingSchedules.options,
       ),
     );
   }
