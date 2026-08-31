@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Firestore } from "@google-cloud/firestore";
 import type { ReportArtifactStore, StoredReportArtifact } from "../delivery/index.js";
 import { AgencyExcelReportGenerator } from "../excel/index.js";
-import { assertReportingScope, type HistoricalDataRepository, type ReportingScope } from "../historical-data/index.js";
+import { assertIsoDate, assertReportingScope, type HistoricalDataRepository, type ReportingScope } from "../historical-data/index.js";
 import { AgencyReportingService } from "../reporting/index.js";
 import type { ReportingJobPayload } from "./types.js";
 
@@ -32,6 +32,18 @@ export interface ReportingBatchRepository {
   record(scope: ReportingScope, input: BatchCompletionInput): Promise<ReportingBatchRecordResult>;
   complete(scope: ReportingScope, claim: ReportingBatchClaim, artifactId: string): Promise<boolean>;
   release(scope: ReportingScope, claim: ReportingBatchClaim): Promise<void>;
+  get(scope: ReportingScope, batchId: string): Promise<ReportingBatchStatus | null>;
+}
+
+export interface ReportingBatchStatus {
+  readonly batchId: string;
+  readonly status: "collecting" | "generating" | "complete";
+  readonly reportKind: "week" | "month";
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly completedAccounts: number;
+  readonly expectedAccounts: number;
+  readonly artifactId: string | null;
 }
 
 export interface ReportingBatchCompletionSink {
@@ -83,6 +95,16 @@ function claim(state: BatchState, now: number): ReportingBatchClaim {
   return { batchId: state.batchId, leaseId: state.leaseId, fence: state.fence };
 }
 
+function publicStatus(state: BatchState): ReportingBatchStatus {
+  return {
+    batchId: state.batchId, status: state.status, reportKind: state.reportKind,
+    startDate: state.startDate, endDate: state.endDate,
+    completedAccounts: state.completedAccountIds.length,
+    expectedAccounts: state.expectedAccountIds.length,
+    artifactId: state.status === "complete" ? state.artifactId : null,
+  };
+}
+
 export class InMemoryReportingBatchRepository implements ReportingBatchRepository {
   private readonly states = new Map<string, BatchState>();
   constructor(private readonly now: () => number = Date.now) {}
@@ -108,7 +130,7 @@ export class InMemoryReportingBatchRepository implements ReportingBatchRepositor
   async complete(scope: ReportingScope, current: ReportingBatchClaim, artifactId: string): Promise<boolean> {
     const state = this.states.get(this.key(scope, current.batchId));
     if (!state || state.status !== "generating" || state.leaseId !== current.leaseId || state.fence !== current.fence || !/^[a-f0-9]{64}$/.test(artifactId)) return false;
-    state.status = "complete"; state.artifactId = artifactId; state.claimExpiresAt = null;
+    state.status = "complete"; state.artifactId = artifactId; state.leaseId = null; state.claimExpiresAt = null;
     return true;
   }
 
@@ -117,6 +139,13 @@ export class InMemoryReportingBatchRepository implements ReportingBatchRepositor
     if (state?.status === "generating" && state.leaseId === current.leaseId && state.fence === current.fence) {
       state.status = "collecting"; state.leaseId = null; state.claimExpiresAt = null;
     }
+  }
+
+  async get(scope: ReportingScope, batchId: string): Promise<ReportingBatchStatus | null> {
+    assertReportingScope(scope);
+    if (!/^batch-[a-f0-9]{40}$/.test(batchId)) return null;
+    const state = this.states.get(this.key(scope, batchId));
+    return state ? publicStatus(state) : null;
   }
 }
 
@@ -129,6 +158,20 @@ function firestoreState(scope: ReportingScope, batchId: string, data: unknown): 
     !Array.isArray(state.expectedAccountIds) || !Array.isArray(state.completedAccountIds) ||
     !["collecting", "generating", "complete"].includes(state.status) || !Number.isSafeInteger(state.fence)) {
     throw new Error("Stored reporting batch identity is invalid");
+  }
+  assertIsoDate(state.startDate, "stored batch startDate");
+  assertIsoDate(state.endDate, "stored batch endDate");
+  const expected = [...state.expectedAccountIds].sort();
+  const completed = [...state.completedAccountIds].sort();
+  const validMembership = expected.length >= 1 && expected.length <= 100 &&
+    expected.every((id, index) => /^act_\d+$/.test(id) && id === state.expectedAccountIds[index] && (index === 0 || id !== expected[index - 1])) &&
+    completed.every((id, index) => /^act_\d+$/.test(id) && id === state.completedAccountIds[index] && (index === 0 || id !== completed[index - 1]) && expected.includes(id));
+  const validLifecycle =
+    (state.status === "collecting" && state.leaseId === null && state.claimExpiresAt === null && state.artifactId === null) ||
+    (state.status === "generating" && typeof state.leaseId === "string" && /^[0-9a-f-]{36}$/.test(state.leaseId) && typeof state.claimExpiresAt === "number" && Number.isSafeInteger(state.claimExpiresAt) && state.artifactId === null) ||
+    (state.status === "complete" && state.leaseId === null && state.claimExpiresAt === null && typeof state.artifactId === "string" && /^[a-f0-9]{64}$/.test(state.artifactId));
+  if (!validMembership || !validLifecycle || state.startDate > state.endDate || (state.reportKind !== "week" && state.reportKind !== "month") || state.fence < 0) {
+    throw new Error("Stored reporting batch state is invalid");
   }
   const { schemaVersion: _schemaVersion, ...result } = state;
   return structuredClone(result);
@@ -172,7 +215,7 @@ export class FirestoreReportingBatchRepository implements ReportingBatchReposito
       if (!snapshot.exists) return false;
       const state = firestoreState(scope, current.batchId, snapshot.data());
       if (state.status !== "generating" || state.leaseId !== current.leaseId || state.fence !== current.fence) return false;
-      state.status = "complete"; state.artifactId = artifactId; state.claimExpiresAt = null;
+      state.status = "complete"; state.artifactId = artifactId; state.leaseId = null; state.claimExpiresAt = null;
       transaction.set(reference, { schemaVersion: 1, ...state }, { merge: false });
       return true;
     });
@@ -189,6 +232,12 @@ export class FirestoreReportingBatchRepository implements ReportingBatchReposito
         transaction.set(reference, { schemaVersion: 1, ...state }, { merge: false });
       }
     });
+  }
+
+  async get(scope: ReportingScope, batchId: string): Promise<ReportingBatchStatus | null> {
+    if (!/^batch-[a-f0-9]{40}$/.test(batchId)) return null;
+    const snapshot = await this.reference(scope, batchId).get();
+    return snapshot.exists ? publicStatus(firestoreState(scope, batchId, snapshot.data())) : null;
   }
 }
 

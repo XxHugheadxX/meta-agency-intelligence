@@ -9,6 +9,7 @@ export * from "./reporting-worker.js";
 export * from "./google-oidc-verifier.js";
 export * from "./reporting-job-lease-repository.js";
 export * from "./reporting-batch-coordinator.js";
+export * from "./reporting-batch-http-handler.js";
 export * from "./reporting-job-config.js";
 export * from "./firestore-control-plane.js";
 export * from "./reporting-job-bootstrap.js";

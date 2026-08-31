@@ -148,6 +148,8 @@ El fan-out firma un `batchId` determinista y la lista completa y ordenada de
 cuentas esperadas en cada job. El worker valida esa membresía fail-closed,
 persiste completaciones tenant-scoped y la última cuenta genera el Excel
 consolidado mediante un claim con fencing, expiración y replay idempotente.
+El estado y la descarga del consolidado ya se exponen mediante endpoints MCP
+autenticados y tenant-scoped, sin revelar coordenadas de almacenamiento.
 
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.

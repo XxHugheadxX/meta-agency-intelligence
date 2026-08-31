@@ -42,6 +42,10 @@ OIDC del scheduler + payload firmado
   credenciales en URLs.
 - `GET /agency/reports/:artifactId` exige un Bearer token MCP válido y vuelve a
   derivar tenant/workspace de sus claims antes de leer el artefacto.
+- `GET /agency/reporting/batches/:batchId` usa la misma autenticación y devuelve
+  sólo período, conteo de progreso y metadata segura del consolidado. La ruta de
+  descarga es relativa y vuelve a pasar por `/agency/reports/:artifactId`; nunca
+  expone object keys, URLs GCS, cuentas del batch, hashes internos ni tokens.
 
 La respuesta del worker contiene únicamente ID opaco, nombre, hash, tamaño,
 periodo y caducidad. No contiene bytes del archivo, token Meta, object key ni
