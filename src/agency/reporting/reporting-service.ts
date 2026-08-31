@@ -64,6 +64,21 @@ function sumMetric(rows: readonly HistoricalMetricRow[], name: MetricName): numb
   if (name === "ctr" || name === "cpc" || name === "cpm" || name === "cpl" || name === "frequency") {
     return null;
   }
+  if (name === "followerCount") {
+    const latestByAccount = new Map<string, HistoricalMetricRow>();
+    for (const row of rows) {
+      if (row.metrics.followerCount === null) continue;
+      const previous = latestByAccount.get(row.accountId);
+      if (!previous || row.date > previous.date || (row.date === previous.date && row.id > previous.id)) {
+        latestByAccount.set(row.accountId, row);
+      }
+    }
+    if (latestByAccount.size === 0) return null;
+    return [...latestByAccount.values()].reduce(
+      (total, row) => total + (row.metrics.followerCount ?? 0),
+      0,
+    );
+  }
   let sum = 0;
   let found = false;
   for (const row of rows) {

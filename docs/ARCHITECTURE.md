@@ -42,8 +42,10 @@ separado calcula el último período completo y compone Firestore, firma KMS y
 publicación Pub/Sub sin claves privadas locales; el bootstrap del worker compone
 control plane, tokens cifrados, histórico, artefactos, auditoría y leases
 tenant-scoped sobre Firestore. No existe todavía un scheduler o cola desplegados,
-ni se validaron GCS/IAM/CMEK en staging. Tampoco se implementó la ingesta orgánica
-de Pages/Instagram ni se validaron contratos contra una Meta test app.
+ni se validaron GCS/IAM/CMEK en staging. La ingesta orgánica account-level de
+Pages/Instagram ya tiene lectores GET-only, normalización y aislamiento probados
+con fixtures; faltan insights por contenido y validar los contratos contra una
+Meta Test App.
 
 `src/agency/scheduler/` aporta control de concurrencia global y por workspace,
 HTTP 429 con `Retry-After`, política conservadora de reintentos y registros

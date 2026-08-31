@@ -101,4 +101,47 @@ describe("AgencyReportingService", () => {
       percentageChange: 100,
     });
   });
+
+  it("aggregates follower stock using the latest value per organic asset", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    const organic = {
+      level: "account" as const,
+      campaignId: null,
+      campaignName: null,
+      adSetId: null,
+      adSetName: null,
+      adId: null,
+      adName: null,
+      breakdowns: { source: "meta_organic_insights", platform: "instagram" },
+    };
+    await repository.upsert(tenantA, metricFixture({
+      ...organic,
+      accountId: "9001",
+      accountName: "Cuenta Norte",
+      date: "2026-08-10",
+      metrics: { followerCount: 500, newFollowers: 5 },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      ...organic,
+      accountId: "9001",
+      accountName: "Cuenta Norte",
+      date: "2026-08-11",
+      metrics: { followerCount: 503, newFollowers: 3 },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      ...organic,
+      accountId: "9002",
+      accountName: "Cuenta Sur",
+      date: "2026-08-11",
+      metrics: { followerCount: 200, newFollowers: -2 },
+    }));
+
+    const report = await new AgencyReportingService(repository).createWeeklyReport(
+      tenantA,
+      "2026-08-12",
+      "account",
+    );
+    expect(report.current.metrics.followerCount).toBe(703);
+    expect(report.current.metrics.newFollowers).toBe(6);
+  });
 });

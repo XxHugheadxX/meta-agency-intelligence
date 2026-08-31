@@ -17,6 +17,10 @@ export type MetricName =
   | "profileVisits"
   | "interactions"
   | "newFollowers"
+  | "views"
+  | "saves"
+  | "shares"
+  | "followerCount"
   | "ctr"
   | "cpc"
   | "cpm"
@@ -38,6 +42,10 @@ export const METRIC_NAMES: readonly MetricName[] = [
   "profileVisits",
   "interactions",
   "newFollowers",
+  "views",
+  "saves",
+  "shares",
+  "followerCount",
   "ctr",
   "cpc",
   "cpm",
@@ -118,8 +126,15 @@ export function normalizeMetrics(input: MetricValuesInput): MetricValues {
   const metrics = {} as MetricValues;
   for (const name of METRIC_NAMES) {
     const value = input[name];
-    if (value !== undefined && value !== null && (!Number.isFinite(value) || value < 0)) {
-      throw new Error(`Metric ${name} must be a finite non-negative number or null`);
+    const canBeNegative = name === "newFollowers";
+    if (
+      value !== undefined &&
+      value !== null &&
+      (!Number.isFinite(value) || (!canBeNegative && value < 0))
+    ) {
+      throw new Error(
+        `Metric ${name} must be a finite ${canBeNegative ? "number" : "non-negative number"} or null`,
+      );
     }
     metrics[name] = value ?? null;
   }
