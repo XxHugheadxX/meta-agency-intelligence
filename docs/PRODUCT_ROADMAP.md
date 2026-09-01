@@ -108,7 +108,10 @@ ausentes.
 
 **Estado:** workbook semanal/mensual editable y sin macros implementado y
 validado automáticamente con fixtures. Las tablas operativas incluyen filtros
-automáticos y encabezados congelados. La composición unificada conserva Ads,
+automáticos, columnas identificadoras congeladas y encabezados de alto
+contraste. El workbook sintético reproducible ya pasó importación, escaneo de
+fórmulas y revisión renderizada de sus diez hojas; ver `EXCEL_VISUAL_QA.md`.
+La composición unificada conserva Ads,
 orgánico account-level y content-level en datasets separados para evitar doble
 conteo. Queda pendiente aprobación manual de negocio y smoke test final en
 Microsoft Excel de escritorio.
