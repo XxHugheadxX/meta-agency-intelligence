@@ -216,7 +216,9 @@ Orden recomendado:
    App sin cuentas reales. Permanece omitido en CI y en la suite normal.
 4. Revisar el resultado del contrato de todos los lectores orgánicos, incluido
    Facebook post-level, antes de autorizar cualquier activo real.
-5. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
+5. Ejecutar el arnés opt-in de `META_ADS_API_CONTRACT.md` con una cuenta
+   publicitaria de prueba y exclusivamente `ads_read`.
+6. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
    claves y documentos ficticios ya está automatizado.
-6. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya
+7. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya
    implementado antes de escalar a veinte cuentas.
