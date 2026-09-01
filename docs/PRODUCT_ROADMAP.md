@@ -107,7 +107,8 @@ ausentes.
 ## Fase 4 — Reporting y Excel
 
 **Estado:** workbook semanal/mensual editable y sin macros implementado y
-validado automáticamente con fixtures. La composición unificada conserva Ads,
+validado automáticamente con fixtures. Las tablas operativas incluyen filtros
+automáticos y encabezados congelados. La composición unificada conserva Ads,
 orgánico account-level y content-level en datasets separados para evitar doble
 conteo. Queda pendiente aprobación manual de negocio y smoke test final en
 Microsoft Excel de escritorio.

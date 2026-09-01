@@ -45,6 +45,8 @@ type Sheet = {
   readonly rows: readonly Row[];
   readonly drawing?: boolean;
   readonly hiddenFromColumn?: number;
+  readonly freezeRows?: number;
+  readonly autoFilter?: boolean;
 };
 type ChartKind = "line" | "bar";
 
@@ -162,7 +164,15 @@ function sheetXml(sheet: Sheet): string {
   const hiddenColumns = sheet.hiddenFromColumn
     ? `<col min=\"${sheet.hiddenFromColumn}\" max=\"16384\" width=\"2\" hidden=\"1\" customWidth=\"1\"/>`
     : "";
-  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheetViews><sheetView workbookViewId=\"0\"><selection activeCell=\"A1\" sqref=\"A1\"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight=\"15\"/><cols><col min=\"1\" max=\"1\" width=\"26\" customWidth=\"1\"/><col min=\"2\" max=\"${visibleEnd}\" width=\"16\" customWidth=\"1\"/>${hiddenColumns}</cols><sheetData>${rows}</sheetData>${drawing}</worksheet>`;
+  const freezeRows = sheet.freezeRows ?? 0;
+  const view = freezeRows > 0
+    ? `<pane ySplit=\"${freezeRows}\" topLeftCell=\"A${freezeRows + 1}\" activePane=\"bottomLeft\" state=\"frozen\"/><selection pane=\"bottomLeft\" activeCell=\"A${freezeRows + 1}\" sqref=\"A${freezeRows + 1}\"/>`
+    : `<selection activeCell=\"A1\" sqref=\"A1\"/>`;
+  const columnCount = Math.max(1, ...sheet.rows.map((row) => row.length));
+  const autoFilter = sheet.autoFilter
+    ? `<autoFilter ref=\"A1:${columnName(columnCount - 1)}${Math.max(1, sheet.rows.length)}\"/>`
+    : "";
+  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheetViews><sheetView workbookViewId=\"0\">${view}</sheetView></sheetViews><sheetFormatPr defaultRowHeight=\"15\"/><cols><col min=\"1\" max=\"1\" width=\"26\" customWidth=\"1\"/><col min=\"2\" max=\"${visibleEnd}\" width=\"16\" customWidth=\"1\"/>${hiddenColumns}</cols><sheetData>${rows}</sheetData>${autoFilter}${drawing}</worksheet>`;
 }
 
 function stylesXml(): string {
@@ -642,21 +652,22 @@ export class AgencyExcelReportGenerator {
       ] : []),
     ];
     const sheets: Sheet[] = [
-      { name: EXCEL_REPORT_SHEETS[0], rows: summary },
+      { name: EXCEL_REPORT_SHEETS[0], rows: summary, freezeRows: 4 },
       {
         name: EXCEL_REPORT_SHEETS[1],
         rows: dashboardRows,
         drawing: true,
         hiddenFromColumn: 16,
+        freezeRows: 2,
       },
-      { name: EXCEL_REPORT_SHEETS[2], rows: periodRows(report, "week") },
-      { name: EXCEL_REPORT_SHEETS[3], rows: periodRows(report, "month") },
-      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(sourceRows.paid, "campaign") },
-      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(sourceRows.paid, "adSet") },
-      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(sourceRows.paid, "ad") },
-      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows([...sourceRows.paid, ...sourceRows.content]) },
-      { name: EXCEL_REPORT_SHEETS[8], rows: digitalMetricRows(report) },
-      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(sourceRows.all) },
+      { name: EXCEL_REPORT_SHEETS[2], rows: periodRows(report, "week"), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[3], rows: periodRows(report, "month"), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(sourceRows.paid, "campaign"), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(sourceRows.paid, "adSet"), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(sourceRows.paid, "ad"), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows([...sourceRows.paid, ...sourceRows.content]), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[8], rows: digitalMetricRows(report), freezeRows: report.sources ? 4 : 1 },
+      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(sourceRows.all), freezeRows: 1, autoFilter: true },
     ];
     const files = new Map<string, string>();
     files.set("[Content_Types].xml", contentTypesXml(sheets.length, charts.length));

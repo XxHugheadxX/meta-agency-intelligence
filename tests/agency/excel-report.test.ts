@@ -71,6 +71,13 @@ describe("AgencyExcelReportGenerator", () => {
     expect(files.get("xl/charts/chart1.xml")).toContain("Alcance diario");
     expect(files.get("xl/charts/chart10.xml")).toContain("Funnel");
     expect(files.get("xl/worksheets/sheet3.xml")).toContain("Semana desde");
+    expect(files.get("xl/worksheets/sheet1.xml")).toContain('ySplit="4" topLeftCell="A5"');
+    expect(files.get("xl/worksheets/sheet2.xml")).toContain('ySplit="2" topLeftCell="A3"');
+    expect(files.get("xl/worksheets/sheet3.xml")).toContain('<autoFilter ref="A1:V2"/>');
+    expect(files.get("xl/worksheets/sheet5.xml")).toContain('<autoFilter ref="A1:X3"/>');
+    expect(files.get("xl/worksheets/sheet8.xml")).toContain('<autoFilter ref="A1:M3"/>');
+    expect(files.get("xl/worksheets/sheet10.xml")).toContain('<autoFilter ref="A1:AQ3"/>');
+    expect(files.get("xl/worksheets/sheet10.xml")).toContain('ySplit="1" topLeftCell="A2"');
     expect(files.get("xl/worksheets/sheet1.xml")).toContain("<v>0.05</v>");
     expect(files.get("xl/worksheets/sheet2.xml")).toContain(
       "<f>&apos;Resumen Ejecutivo&apos;!B5</f><v>1500</v>",
