@@ -42,11 +42,12 @@ pagados para consumidores anteriores.
 
 ## Límites actuales
 
-- El job ya ejecuta Ads, orgánico account-level y contenido Instagram antes de
-  crear su workbook aislado por cuenta.
+- El job ya ejecuta Ads, orgánico account-level y contenido de Facebook e
+  Instagram antes de crear su workbook aislado por cuenta.
 - Falta el coordinador de cierre de batch que espere las ingestas de las
   aproximadamente 20 cuentas y cree un workbook consolidado de agencia.
-- Facebook post-level sigue pendiente.
+- Facebook post-level usa métricas modernas, snapshots lifetime y validación
+  del Page padre antes de consultar insights.
 - Los snapshots de contenido se atribuyen a su fecha de publicación y reflejan
   el total lifetime observado en `extractedAt`.
 - La revisión visual final en Microsoft Excel de escritorio sigue siendo un gate

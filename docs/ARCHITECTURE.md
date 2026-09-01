@@ -42,8 +42,8 @@ identidad de workload verificada, valida un payload firmado con clave pública,
 resuelve tenant/workspace/cuenta antes del token, rechaza scopes de escritura y
 ejecuta Ads Insights dentro de un contexto backend GET-only. Cuando un binding
 de Page/Instagram declara el `reportingAccountId` del job, el mismo worker
-ejecuta también orgánico account-level y contenido Instagram antes de generar
-el workbook aislado de esa cuenta. Reporting aplica filtros independientes para
+ejecuta también orgánico account-level y contenido de Facebook e Instagram
+antes de generar el workbook aislado de esa cuenta. Reporting aplica filtros independientes para
 Ads, orgánico account-level y contenido, por lo que no consume filas de otros
 jobs presentes en el mismo histórico. El resolver intersecta binding, cuenta y
 activos permitidos por el token; no asigna activos automáticamente entre las
@@ -57,10 +57,10 @@ persisten bajo tenant/workspace; la última cuenta reclama con fencing la
 generación de un único workbook consolidado y un replay recupera claims fallidos
 o vencidos. No existe todavía un scheduler o cola desplegados,
 ni se validaron GCS/IAM/CMEK en staging. La ingesta orgánica account-level de
-Pages/Instagram y content-level de Instagram ya tiene lectores GET-only,
-normalización, aislamiento y orquestación programada probados con fixtures. Los
-niveles permanecen separados para evitar doble conteo. Falta Facebook
-post-level y validar los contratos contra una Meta Test App; ver
+Pages/Instagram y content-level de Facebook e Instagram ya tiene lectores
+GET-only, normalización, aislamiento y orquestación programada probados con fixtures. Los
+niveles permanecen separados para evitar doble conteo. Falta validar los
+contratos contra una Meta Test App; ver
 `ORGANIC_INSIGHTS.md`.
 
 `src/agency/scheduler/` aporta control de concurrencia global y por workspace,
