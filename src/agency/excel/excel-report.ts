@@ -46,7 +46,10 @@ type Sheet = {
   readonly drawing?: boolean;
   readonly hiddenFromColumn?: number;
   readonly freezeRows?: number;
+  readonly freezeColumns?: number;
   readonly autoFilter?: boolean;
+  /** One-based column indexes with widths that differ from the sheet defaults. */
+  readonly columnWidths?: Readonly<Record<number, number>>;
 };
 type ChartKind = "line" | "bar";
 
@@ -160,23 +163,43 @@ function sheetXml(sheet: Sheet): string {
     })
     .join("");
   const drawing = sheet.drawing ? `<drawing r:id=\"rId1\"/>` : "";
-  const visibleEnd = sheet.hiddenFromColumn ? sheet.hiddenFromColumn - 1 : 40;
+  const columnCount = Math.max(1, ...sheet.rows.map((row) => row.length));
+  const visibleEnd = sheet.hiddenFromColumn
+    ? sheet.hiddenFromColumn - 1
+    : Math.max(40, columnCount);
+  const visibleColumns: string[] = [];
+  let firstColumn = 1;
+  let width = sheet.columnWidths?.[1] ?? 26;
+  for (let column = 2; column <= visibleEnd + 1; column += 1) {
+    const nextWidth = column <= visibleEnd
+      ? sheet.columnWidths?.[column] ?? 16
+      : null;
+    if (nextWidth === width) continue;
+    visibleColumns.push(`<col min=\"${firstColumn}\" max=\"${column - 1}\" width=\"${width}\" customWidth=\"1\"/>`);
+    firstColumn = column;
+    width = nextWidth ?? 16;
+  }
   const hiddenColumns = sheet.hiddenFromColumn
     ? `<col min=\"${sheet.hiddenFromColumn}\" max=\"16384\" width=\"2\" hidden=\"1\" customWidth=\"1\"/>`
     : "";
   const freezeRows = sheet.freezeRows ?? 0;
-  const view = freezeRows > 0
-    ? `<pane ySplit=\"${freezeRows}\" topLeftCell=\"A${freezeRows + 1}\" activePane=\"bottomLeft\" state=\"frozen\"/><selection pane=\"bottomLeft\" activeCell=\"A${freezeRows + 1}\" sqref=\"A${freezeRows + 1}\"/>`
+  const freezeColumns = sheet.freezeColumns ?? 0;
+  const topLeftCell = `${columnName(freezeColumns)}${freezeRows + 1}`;
+  const activePane = freezeRows > 0 && freezeColumns > 0
+    ? "bottomRight"
+    : freezeRows > 0 ? "bottomLeft" : "topRight";
+  const paneSplits = `${freezeColumns > 0 ? ` xSplit=\"${freezeColumns}\"` : ""}${freezeRows > 0 ? ` ySplit=\"${freezeRows}\"` : ""}`;
+  const view = freezeRows > 0 || freezeColumns > 0
+    ? `<pane${paneSplits} topLeftCell=\"${topLeftCell}\" activePane=\"${activePane}\" state=\"frozen\"/><selection pane=\"${activePane}\" activeCell=\"${topLeftCell}\" sqref=\"${topLeftCell}\"/>`
     : `<selection activeCell=\"A1\" sqref=\"A1\"/>`;
-  const columnCount = Math.max(1, ...sheet.rows.map((row) => row.length));
   const autoFilter = sheet.autoFilter
     ? `<autoFilter ref=\"A1:${columnName(columnCount - 1)}${Math.max(1, sheet.rows.length)}\"/>`
     : "";
-  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheetViews><sheetView workbookViewId=\"0\">${view}</sheetView></sheetViews><sheetFormatPr defaultRowHeight=\"15\"/><cols><col min=\"1\" max=\"1\" width=\"26\" customWidth=\"1\"/><col min=\"2\" max=\"${visibleEnd}\" width=\"16\" customWidth=\"1\"/>${hiddenColumns}</cols><sheetData>${rows}</sheetData>${autoFilter}${drawing}</worksheet>`;
+  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheetViews><sheetView workbookViewId=\"0\">${view}</sheetView></sheetViews><sheetFormatPr defaultRowHeight=\"15\"/><cols>${visibleColumns.join("")}${hiddenColumns}</cols><sheetData>${rows}</sheetData>${autoFilter}${drawing}</worksheet>`;
 }
 
 function stylesXml(): string {
-  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><numFmts count=\"3\"><numFmt numFmtId=\"164\" formatCode=\"#,##0.00\"/><numFmt numFmtId=\"165\" formatCode=\"#,##0.00;[Red]-#,##0.00\"/><numFmt numFmtId=\"166\" formatCode=\"0.00%\"/></numFmts><fonts count=\"2\"><font><sz val=\"11\"/><name val=\"Aptos\"/></font><font><b/><sz val=\"11\"/><name val=\"Aptos Display\"/></font></fonts><fills count=\"3\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/><bgColor indexed=\"64\"/></patternFill></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"5\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"0\" applyFont=\"1\" applyFill=\"1\" xfId=\"0\"/><xf numFmtId=\"164\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/><xf numFmtId=\"165\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/><xf numFmtId=\"166\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/></cellXfs></styleSheet>`;
+  return `<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><numFmts count=\"3\"><numFmt numFmtId=\"164\" formatCode=\"#,##0.00\"/><numFmt numFmtId=\"165\" formatCode=\"#,##0.00;[Red]-#,##0.00\"/><numFmt numFmtId=\"166\" formatCode=\"0.00%\"/></numFmts><fonts count=\"2\"><font><sz val=\"11\"/><name val=\"Aptos\"/></font><font><b/><sz val=\"11\"/><color rgb=\"FFFFFFFF\"/><name val=\"Aptos Display\"/></font></fonts><fills count=\"3\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/><bgColor indexed=\"64\"/></patternFill></fill></fills><borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"5\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"0\" applyFont=\"1\" applyFill=\"1\" xfId=\"0\"/><xf numFmtId=\"164\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/><xf numFmtId=\"165\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/><xf numFmtId=\"166\" fontId=\"0\" fillId=\"0\" borderId=\"0\" applyNumberFormat=\"1\" xfId=\"0\"/></cellXfs></styleSheet>`;
 }
 
 function aggregateBy<T extends string>(
@@ -433,14 +456,17 @@ function chartsFor(
   const weekly = weeks.map((week) => aggregateRows(weekGroups.get(week) ?? []).metrics);
   const campaigns = aggregateBy(report.rawRows.filter((row) => row.campaignId !== null), (row) => row.campaignId ?? "sin-id", (row) => row.campaignName ?? "Sin nombre").slice(0, 10);
   const contents = topContent(contentRowsForReport.length > 0 ? contentRowsForReport : report.rawRows);
+  const currencyUnit = report.current.currencies.length === 1
+    ? report.current.currencies[0]
+    : "moneda de cada cuenta";
   const charts: ChartDefinition[] = [
     { title: "Alcance diario", kind: "line", categories: daily.categories, series: [{ name: "Alcance", values: daily.aggregates.map((metric) => metric.reach) }] },
     { title: "Clics diarios", kind: "line", categories: daily.categories, series: [{ name: "Clics", values: daily.aggregates.map((metric) => metric.clicks) }] },
     { title: "Mensajes vs leads", kind: "line", categories: daily.categories, series: [{ name: "Mensajes", values: daily.aggregates.map((metric) => metric.messages) }, { name: "Leads", values: daily.aggregates.map((metric) => metric.leads) }] },
-    { title: "Inversión semanal", kind: "bar", categories: weeks, series: [{ name: "Inversión", values: weekly.map((metric) => metric.spend) }] },
+    { title: `Inversión semanal (${currencyUnit})`, kind: "bar", categories: weeks, series: [{ name: "Inversión", values: weekly.map((metric) => metric.spend) }] },
     { title: "Leads semanales", kind: "bar", categories: weeks, series: [{ name: "Leads", values: weekly.map((metric) => metric.leads) }] },
-    { title: "Evolución de CTR", kind: "line", categories: daily.categories, series: [{ name: "CTR", values: daily.aggregates.map((metric) => metric.ctr) }] },
-    { title: "Evolución de CPC/CPL", kind: "line", categories: daily.categories, series: [{ name: "CPC", values: daily.aggregates.map((metric) => metric.cpc) }, { name: "CPL", values: daily.aggregates.map((metric) => metric.cpl) }] },
+    { title: "Evolución de CTR (%)", kind: "line", categories: daily.categories, series: [{ name: "CTR (%)", values: daily.aggregates.map((metric) => metric.ctr) }] },
+    { title: `Evolución de CPC/CPL (${currencyUnit})`, kind: "line", categories: daily.categories, series: [{ name: "CPC", values: daily.aggregates.map((metric) => metric.cpc) }, { name: "CPL", values: daily.aggregates.map((metric) => metric.cpl) }] },
     { title: "Top campañas", kind: "bar", categories: campaigns.map((entry) => entry.name), series: [{ name: "Leads", values: campaigns.map((entry) => entry.metrics.leads) }] },
     { title: "Top contenidos", kind: "bar", categories: contents.map((entry) => entry.name), series: [{ name: "Interacciones", values: contents.map((entry) => entry.value) }] },
     { title: "Funnel", kind: "bar", categories: ["Alcance", "Visita", "Clic", "Mensaje", "Lead"], series: [{ name: "Usuarios", values: [report.current.metrics.reach, report.current.metrics.profileVisits, report.current.metrics.clicks, report.current.metrics.messages, report.current.metrics.leads] }] },
@@ -652,22 +678,23 @@ export class AgencyExcelReportGenerator {
       ] : []),
     ];
     const sheets: Sheet[] = [
-      { name: EXCEL_REPORT_SHEETS[0], rows: summary, freezeRows: 4 },
+      { name: EXCEL_REPORT_SHEETS[0], rows: summary, freezeRows: 4, columnWidths: { 1: 30, 2: 30 } },
       {
         name: EXCEL_REPORT_SHEETS[1],
         rows: dashboardRows,
         drawing: true,
         hiddenFromColumn: 16,
         freezeRows: 2,
+        columnWidths: { 1: 24, 3: 30, 4: 24, 6: 42 },
       },
-      { name: EXCEL_REPORT_SHEETS[2], rows: periodRows(report, "week"), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[3], rows: periodRows(report, "month"), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(sourceRows.paid, "campaign"), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(sourceRows.paid, "adSet"), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(sourceRows.paid, "ad"), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows([...sourceRows.paid, ...sourceRows.content]), freezeRows: 1, autoFilter: true },
-      { name: EXCEL_REPORT_SHEETS[8], rows: digitalMetricRows(report), freezeRows: report.sources ? 4 : 1 },
-      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(sourceRows.all), freezeRows: 1, autoFilter: true },
+      { name: EXCEL_REPORT_SHEETS[2], rows: periodRows(report, "week"), freezeRows: 1, freezeColumns: 2, autoFilter: true, columnWidths: { 1: 16, 2: 14 } },
+      { name: EXCEL_REPORT_SHEETS[3], rows: periodRows(report, "month"), freezeRows: 1, freezeColumns: 2, autoFilter: true, columnWidths: { 1: 16, 2: 14 } },
+      { name: EXCEL_REPORT_SHEETS[4], rows: dimensionRows(sourceRows.paid, "campaign"), freezeRows: 1, freezeColumns: 2, autoFilter: true, columnWidths: { 1: 20, 2: 30, 3: 12, 4: 10 } },
+      { name: EXCEL_REPORT_SHEETS[5], rows: dimensionRows(sourceRows.paid, "adSet"), freezeRows: 1, freezeColumns: 2, autoFilter: true, columnWidths: { 1: 20, 2: 28, 3: 12, 4: 10 } },
+      { name: EXCEL_REPORT_SHEETS[6], rows: dimensionRows(sourceRows.paid, "ad"), freezeRows: 1, freezeColumns: 2, autoFilter: true, columnWidths: { 1: 20, 2: 30, 3: 12, 4: 10 } },
+      { name: EXCEL_REPORT_SHEETS[7], rows: contentRows([...sourceRows.paid, ...sourceRows.content]), freezeRows: 1, freezeColumns: 3, autoFilter: true, columnWidths: { 1: 14, 2: 20, 3: 32, 4: 20, 5: 30, 6: 26, 7: 12 } },
+      { name: EXCEL_REPORT_SHEETS[8], rows: digitalMetricRows(report), freezeRows: report.sources ? 4 : 1, columnWidths: { 1: 28, 2: 20, 3: 20, 4: 20, 5: 20 } },
+      { name: EXCEL_REPORT_SHEETS[9], rows: rawRows(sourceRows.all), freezeRows: 1, freezeColumns: 6, autoFilter: true, columnWidths: { 1: 16, 2: 18, 3: 30, 4: 14, 5: 16, 6: 16, 7: 26, 9: 28, 11: 24, 13: 30, 15: 30 } },
     ];
     const files = new Map<string, string>();
     files.set("[Content_Types].xml", contentTypesXml(sheets.length, charts.length));

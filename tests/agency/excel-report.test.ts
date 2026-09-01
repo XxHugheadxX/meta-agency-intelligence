@@ -70,14 +70,29 @@ describe("AgencyExcelReportGenerator", () => {
     expect(files.get("xl/worksheets/_rels/sheet2.xml.rels")).toContain("drawings/drawing1.xml");
     expect(files.get("xl/charts/chart1.xml")).toContain("Alcance diario");
     expect(files.get("xl/charts/chart10.xml")).toContain("Funnel");
+    expect(files.get("xl/charts/chart4.xml")).toContain("Inversión semanal (BOB)");
+    expect(files.get("xl/charts/chart6.xml")).toContain("Evolución de CTR (%)");
+    expect(files.get("xl/charts/chart7.xml")).toContain("Evolución de CPC/CPL (BOB)");
     expect(files.get("xl/worksheets/sheet3.xml")).toContain("Semana desde");
     expect(files.get("xl/worksheets/sheet1.xml")).toContain('ySplit="4" topLeftCell="A5"');
     expect(files.get("xl/worksheets/sheet2.xml")).toContain('ySplit="2" topLeftCell="A3"');
+    expect(files.get("xl/worksheets/sheet3.xml")).toContain(
+      'xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight"',
+    );
+    expect(files.get("xl/worksheets/sheet8.xml")).toContain(
+      'xSplit="3" ySplit="1" topLeftCell="D2" activePane="bottomRight"',
+    );
+    expect(files.get("xl/worksheets/sheet10.xml")).toContain(
+      'xSplit="6" ySplit="1" topLeftCell="G2" activePane="bottomRight"',
+    );
     expect(files.get("xl/worksheets/sheet3.xml")).toContain('<autoFilter ref="A1:V2"/>');
     expect(files.get("xl/worksheets/sheet5.xml")).toContain('<autoFilter ref="A1:X3"/>');
     expect(files.get("xl/worksheets/sheet8.xml")).toContain('<autoFilter ref="A1:M3"/>');
+    expect(files.get("xl/worksheets/sheet8.xml")).toContain(
+      '<col min="3" max="3" width="32" customWidth="1"/>',
+    );
     expect(files.get("xl/worksheets/sheet10.xml")).toContain('<autoFilter ref="A1:AQ3"/>');
-    expect(files.get("xl/worksheets/sheet10.xml")).toContain('ySplit="1" topLeftCell="A2"');
+    expect(files.get("xl/styles.xml")).toContain('<color rgb="FFFFFFFF"/>');
     expect(files.get("xl/worksheets/sheet1.xml")).toContain("<v>0.05</v>");
     expect(files.get("xl/worksheets/sheet2.xml")).toContain(
       "<f>&apos;Resumen Ejecutivo&apos;!B5</f><v>1500</v>",
