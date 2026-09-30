@@ -1,41 +1,66 @@
 # Contrato seguro de Meta Ads Insights
 
-Este gate valida una cuenta publicitaria exclusivamente de prueba antes de
-autorizar activos reales. El arnés usa el cliente `read_only`, sólo realiza GET,
-exige binding del `act_<id>` al workspace y no solicita ni necesita
-`ads_management`.
+Este gate usa una cuenta exclusivamente sandbox/test, el cliente `read_only`,
+GET y binding del `act_<id>` al workspace. No solicita `ads_management`.
+No conecta activos reales ni valida automáticamente toda la infraestructura.
 
-## Permiso mínimo
+## Paso a paso en PowerShell
 
-- `ads_read`
-
-No añadir `ads_management`. Si Meta exige otro permiso, detener la prueba y
-revisar el endpoint y la versión antes de ampliar scopes.
-
-## Ejecución segura en PowerShell
-
-No pegar el token en el chat, en archivos `.env`, en URLs ni en argumentos del
-comando. Usar un token temporal y una cuenta publicitaria no productiva.
+1. Abre PowerShell en la raíz del repositorio, no en Graph API Explorer.
+2. En Meta genera un token temporal para esta Test App con **sólo `ads_read`**.
+   `public_profile` puede aparecer como permiso básico. Si no puedes excluir
+   permisos de escritura, cancela: no amplíes permisos para forzar la prueba.
+3. Ejecuta:
 
 ```powershell
-$env:RUN_META_ADS_CONTRACT_TESTS = "true"
-$env:META_ADS_CONTRACT_ACCESS_TOKEN = Read-Host -MaskInput "Token temporal con ads_read"
-$env:META_ADS_CONTRACT_ACCOUNT_ID = "act_ID_NUMERICO_TEST"
-$env:META_ADS_CONTRACT_API_VERSION = "v25.0"
-$env:META_ADS_CONTRACT_START_DATE = "AAAA-MM-DD"
-$env:META_ADS_CONTRACT_END_DATE = "AAAA-MM-DD"
-
-.\node_modules\.bin\vitest.cmd run tests\contract\meta-ads-test-app.contract.test.ts --pool=threads --maxWorkers=1
-
-Remove-Item Env:RUN_META_ADS_CONTRACT_TESTS -ErrorAction SilentlyContinue
-Remove-Item Env:META_ADS_CONTRACT_ACCESS_TOKEN -ErrorAction SilentlyContinue
-Remove-Item Env:META_ADS_CONTRACT_ACCOUNT_ID -ErrorAction SilentlyContinue
-Remove-Item Env:META_ADS_CONTRACT_API_VERSION -ErrorAction SilentlyContinue
-Remove-Item Env:META_ADS_CONTRACT_START_DATE -ErrorAction SilentlyContinue
-Remove-Item Env:META_ADS_CONTRACT_END_DATE -ErrorAction SilentlyContinue
+.\scripts\test-meta-ads-contract.ps1
 ```
 
-La prueba consulta metadata del ad account y Ads Insights diarios al nivel
-`account`. Una respuesta vacía confirma autenticación y acceso, pero no valida
-la forma real de métricas; antes del piloto debe repetirse con datos sintéticos
-o no productivos dentro del rango.
+4. Cuando pida el ID, escribe únicamente los números de la **cuenta publicitaria
+   sandbox**, o `act_` seguido de esos números. No uses el App ID ni un endpoint
+   `/insights`, ni pegues literalmente un placeholder.
+5. Escribe `SANDBOX` para confirmar que no usarás una cuenta real.
+6. Introduce el token en el prompt oculto. No lo compartas en chat, capturas,
+   URLs, argumentos, archivos `.env` ni historial de comandos.
+7. Comparte sólo PASS/FAIL y el código de error sanitizado. Revoca el token al
+   finalizar. No uses un token previamente expuesto, aunque sea sandbox.
+
+El helper funciona con Windows PowerShell 5.1 y PowerShell 7. No ejecuta npm.
+Restaura las variables de proceso en `finally`; el token sólo se transmite al
+proceso de test mediante entorno. No equivale a garantizar borrado de toda
+copia en memoria del runtime. No ejecutes transcripciones ni herramientas que
+vuelquen el entorno mientras lo usas.
+
+## Qué valida y qué no
+
+- Primero GET `/me/permissions`: exige `ads_read` concedido y rechaza scopes
+  concedidos adicionales salvo `public_profile`, para este contrato Ads-only.
+- Después metadata de cuenta e Insights diarios del nivel seleccionado.
+- Una respuesta `data: []` valida acceso al endpoint, no semántica de métricas.
+- Para cerrar el gate de datos, repetir con datos **no productivos** conocidos,
+  fechas correctas y `-RequireData`; no crear anuncios reales para conseguir datos.
+- La prueba está acotada a una página de hasta 25 filas. No certifica backfill,
+  toda la paginación ni carga de veinte cuentas; tienen pruebas separadas.
+- `/me/permissions` no sustituye la introspección de procedencia de token del
+  backend ni comprueba por sí solo que la cuenta es sandbox.
+
+Ejemplo sin secretos, usando un nivel más detallado:
+
+```powershell
+.\scripts\test-meta-ads-contract.ps1 -Level ad -RequireData
+```
+
+Se pueden indicar `-StartDate`, `-EndDate` (ISO `yyyy-MM-dd`) y `-ApiVersion`.
+El default compartido está en `src/meta/api-version.ts`; no se afirma que sea
+la última versión ni que Meta la haya validado para esta app. No cambiar de
+versión entre frontend Explorer, contrato, OAuth y worker sin revisión.
+
+## Si devuelve #200
+
+El token puede tener `ads_read` y aun así no estar autorizado para esa cuenta.
+Revisar app seleccionada, usuario/rol, titular y vínculo de la cuenta sandbox,
+permisos concedidos y vigencia. No deducir del error que falta una Facebook
+Page, ni solicitar `ads_management` como workaround. Resolver primero el acceso
+de la Test App y repetir con un token nuevo de mínimo privilegio.
+
+Los contratos están omitidos por defecto en CI y en la suite local normal.

@@ -14,6 +14,7 @@ import {
   type OrganicContentItem,
 } from "../../src/agency/ingestion/index.js";
 import { MetaApiClient } from "../../src/meta/client.js";
+import { resolveMetaApiVersion } from "../../src/meta/api-version.js";
 
 const enabled = process.env.RUN_META_ORGANIC_CONTRACT_TESTS === "true";
 const contractDescribe = enabled ? describe : describe.skip;
@@ -23,7 +24,7 @@ const pageId = process.env.META_CONTRACT_PAGE_ID?.trim() ?? "";
 const facebookPostId = process.env.META_CONTRACT_FACEBOOK_POST_ID?.trim() ?? "";
 const instagramId = process.env.META_CONTRACT_INSTAGRAM_ID?.trim() ?? "";
 const instagramMediaId = process.env.META_CONTRACT_INSTAGRAM_MEDIA_ID?.trim() ?? "";
-const apiVersion = process.env.META_CONTRACT_API_VERSION?.trim() || "v25.0";
+const apiVersion = resolveMetaApiVersion(process.env.META_CONTRACT_API_VERSION);
 const startDate = process.env.META_CONTRACT_START_DATE?.trim() ?? "";
 const endDate = process.env.META_CONTRACT_END_DATE?.trim() ?? "";
 

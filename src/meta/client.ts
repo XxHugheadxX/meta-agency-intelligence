@@ -16,8 +16,8 @@ import {
 import type { MetaApiResponse } from "./types/common.js";
 import { collectAllPages } from "./paginator.js";
 import { DistributedMetaGuard } from "./distributed-guard.js";
+import { resolveMetaApiVersion } from "./api-version.js";
 
-const DEFAULT_API_VERSION = "v25.0";
 const DEFAULT_BASE_URL = "https://graph.facebook.com";
 const DEFAULT_TIMEOUT = 30000;
 const MAX_RETRIES = 3;
@@ -67,8 +67,7 @@ export class MetaApiClient {
   private readonly tenantObjectCache = new Map<string, string>();
 
   constructor(config?: MetaApiClientConfig) {
-    this.apiVersion =
-      config?.apiVersion ?? process.env.META_API_VERSION ?? DEFAULT_API_VERSION;
+    this.apiVersion = resolveMetaApiVersion(config?.apiVersion);
     this.baseUrl = config?.baseUrl ?? DEFAULT_BASE_URL;
     this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = config?.maxRetries ?? MAX_RETRIES;

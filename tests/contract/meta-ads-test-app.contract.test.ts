@@ -6,15 +6,20 @@ import {
   type IngestionAccount,
 } from "../../src/agency/ingestion/index.js";
 import { MetaApiClient } from "../../src/meta/client.js";
+import { resolveMetaApiVersion } from "../../src/meta/api-version.js";
+import { preflightAdsOnlyTestToken } from "../../src/agency/ingestion/contract-preflight.js";
+import { assertIsoDate, type PaidHistoricalMetricLevel } from "../../src/agency/historical-data/index.js";
 
 const enabled = process.env.RUN_META_ADS_CONTRACT_TESTS === "true";
 const contractDescribe = enabled ? describe : describe.skip;
 
 const accessToken = process.env.META_ADS_CONTRACT_ACCESS_TOKEN?.trim() ?? "";
 const accountId = process.env.META_ADS_CONTRACT_ACCOUNT_ID?.trim() ?? "";
-const apiVersion = process.env.META_ADS_CONTRACT_API_VERSION?.trim() || "v25.0";
+const apiVersion = resolveMetaApiVersion(process.env.META_ADS_CONTRACT_API_VERSION);
 const startDate = process.env.META_ADS_CONTRACT_START_DATE?.trim() ?? "";
 const endDate = process.env.META_ADS_CONTRACT_END_DATE?.trim() ?? "";
+const level = (process.env.META_ADS_CONTRACT_LEVEL?.trim() || "account") as PaidHistoricalMetricLevel;
+const requireData = process.env.META_ADS_CONTRACT_REQUIRE_DATA === "true";
 
 interface MetaAdAccountMetadata {
   readonly id?: unknown;
@@ -35,6 +40,9 @@ function assertConfiguration(): void {
     throw new Error("META_ADS_CONTRACT_START_DATE and META_ADS_CONTRACT_END_DATE are required ISO dates");
   }
   if (startDate > endDate) throw new Error("Meta Ads contract start date must not exceed end date");
+  assertIsoDate(startDate, "contract start date");
+  assertIsoDate(endDate, "contract end date");
+  if (!["account", "campaign", "ad_set", "ad"].includes(level)) throw new Error("Invalid Ads contract level");
 }
 
 function requiredMetadata(value: unknown, field: string): string {
@@ -45,7 +53,10 @@ function requiredMetadata(value: unknown, field: string): string {
 }
 
 contractDescribe.sequential("Meta Ads Test App read-only contract", () => {
-  beforeAll(assertConfiguration);
+  beforeAll(async () => {
+    assertConfiguration();
+    await preflightAdsOnlyTestToken(client, accessToken);
+  });
 
   const client = new MetaApiClient({
     apiVersion,
@@ -67,7 +78,7 @@ contractDescribe.sequential("Meta Ads Test App read-only contract", () => {
     }, operation);
   }
 
-  it("reads account metadata and daily account-level insights without write operations", async () => {
+  it("reads account metadata and daily selected-level insights without write operations", async () => {
     const metadata = await runInTestWorkspace(() => client.get<MetaAdAccountMetadata>(
       `/${accountId}`,
       { fields: "id,name,currency,timezone_name" },
@@ -78,22 +89,24 @@ contractDescribe.sequential("Meta Ads Test App read-only contract", () => {
       currency: requiredMetadata(metadata.currency, "currency"),
       timezone: requiredMetadata(metadata.timezone_name, "timezone_name"),
     };
+    expect(metadata.id).toBe(accountId);
 
     const response = await runInTestWorkspace(() => reader.readPage({
       account,
       startDate,
       endDate,
-      level: "account",
+      level,
       attributionWindow: null,
       breakdowns: [],
       pageSize: 25,
     }));
 
     expect(Array.isArray(response.data)).toBe(true);
+    if (requireData) expect(response.data.length, "Access succeeded but no metric rows were available").toBeGreaterThan(0);
     for (const [index, record] of response.data.entries()) {
       const normalized = normalizeMetaInsight(record, {
         account,
-        level: "account",
+        level,
         attributionWindow: null,
         breakdowns: [],
         apiVersion,
