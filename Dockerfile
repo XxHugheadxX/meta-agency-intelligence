@@ -8,13 +8,18 @@ COPY tsconfig.json ./
 COPY src/ src/
 RUN npm run build
 
+FROM node:22-alpine AS production-dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
 
 COPY --from=builder /app/dist/ dist/
-COPY --from=builder /app/node_modules/ node_modules/
+COPY --from=production-dependencies /app/node_modules/ node_modules/
 COPY package.json ./
 
 EXPOSE 3000

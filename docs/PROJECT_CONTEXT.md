@@ -78,6 +78,13 @@ src/agency/
 - El token de Meta permanece exclusivamente en backend.
 - Cada token y cada activo autorizado están vinculados a un tenant/workspace.
 - El histórico agregado y la PII de leads no comparten la misma frontera.
+- Los snapshots paid se seleccionan por nivel, breakdown, atribución, versión
+  de API y esquema; nunca se mezclan datasets para aumentar cobertura.
+- El alcance único de varias filas no se obtiene sumando personas. Alcance y
+  frecuencia agregados permanecen N/D hasta incorporar totales únicos por período.
+- Las acciones de mensajes/leads tienen una política canónica versionada; no se
+  suman aliases solapados ni conversiones de objetivos diferentes.
+- Deploy y publicación son opt-in, separados de un push de código al repo privado.
 - Las herramientas nuevas se deniegan en read-only hasta entrar expresamente en
   la allowlist revisada.
 - No se conectarán cuentas reales hasta superar los gates de seguridad y
@@ -113,6 +120,8 @@ src/agency/
 - `docs/SECURITY_REQUIREMENTS.md`: controles obligatorios y gates.
 - `docs/REPORTING_REQUIREMENTS.md`: alcance funcional y definiciones de datos.
 - `docs/PRODUCT_ROADMAP.md`: orden de ejecución y criterios de salida.
+- `docs/MVP_READINESS.md`: avances verificables y pendientes de esta integración.
+- `docs/SECURITY_REMEDIATION_STATUS.md`: controles en código frente a gates operativos.
 - El código y los tests prevalecen sobre documentación histórica si hay una
   discrepancia; la discrepancia debe corregirse en la misma rama.
 

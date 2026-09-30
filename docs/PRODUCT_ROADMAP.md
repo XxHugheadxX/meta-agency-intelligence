@@ -17,6 +17,13 @@ bytes, object keys ni URLs. Las cuatro suites Firestore pasan contra el emulador
 local con datos sintéticos. Falta ejecutar el contrato contra una Meta Test App
 antes de usar activos reales.
 
+La integración `codex/mvp-data-readiness` corrige período anterior calendario,
+backfill inicial de ambos períodos, selección de snapshots, aliases de acciones,
+alcance no aditivo y fórmulas ausentes; integra recomendaciones al Excel.
+Ver `MVP_READINESS.md` y `SECURITY_REMEDIATION_STATUS.md` para distinguir código
+verificado de gates abiertos. Meta Test App no es el único pendiente: quedan
+alcance único por período, metadata de segmentación, conciliación y staging.
+
 ## Fase 0 — Auditoría y hardening
 
 **Estado de código:** hardening Critical/High implementado y testeado en
@@ -148,9 +155,11 @@ los activos en cada uno de los aproximadamente 20 jobs.
 
 El artefacto producido por cada job queda limitado a esa cuenta Ads y a sus
 activos orgánicos asociados, evitando resultados parciales contaminados por
-filas ya ingeridas de otras cuentas del workspace. Sigue pendiente coordinar el
-cierre del batch para generar un único Excel consolidado de agencia cuando
-terminen todas las ingestas del período.
+filas ya ingeridas de otras cuentas del workspace. El cierre de batch para
+generar un único Excel consolidado ya está implementado; su recuperación
+operativa permanece pendiente de staging. El consolidado paid se limita a la
+membresía firmada; el orgánico aún cubre el workspace y debe restringirse antes
+de ofrecer batches parciales.
 
 El fan-out firma un `batchId` determinista y la lista completa y ordenada de
 cuentas esperadas en cada job. El worker valida esa membresía fail-closed,
@@ -211,17 +220,17 @@ Orden recomendado:
 
 ## Próximas tareas recomendadas
 
-1. Revisar las ramas encadenadas y decidir su integración sin merge automático.
-2. Aprovisionar el bucket GCS privado y validar IAM, CMEK, lifecycle y descarga
-   proxy en staging con archivos sintéticos.
-3. Ejecutar el arnés opt-in ya implementado en
-   `tests/contract/meta-organic-test-app.contract.test.ts` contra una Meta Test
-   App sin cuentas reales. Permanece omitido en CI y en la suite normal.
-4. Revisar el resultado del contrato de todos los lectores orgánicos, incluido
-   Facebook post-level, antes de autorizar cualquier activo real.
-5. Ejecutar el arnés opt-in de `META_ADS_API_CONTRACT.md` con una cuenta
-   publicitaria de prueba y exclusivamente `ads_read`.
-6. Ejecutar en staging el runbook de rotación y restore. El simulacro local con
-   claves y documentos ficticios ya está automatizado.
-7. Aprovisionar Pub/Sub y dead-letter queue y ensayar el scheduler ya
-   implementado antes de escalar a veinte cuentas.
+1. Ejecutar el helper opt-in de `META_ADS_API_CONTRACT.md` con Test App, sólo
+   `ads_read` y token nuevo. Una respuesta vacía no concilia métricas.
+2. Incorporar alcance único por período y metadata real de segmentación con
+   fixtures primero. No sumar reach diario ni inventar intereses/creative IDs.
+3. Revisar migración/backfill `meta-insights-v2` y aprobar la política de acciones.
+4. Restringir orgánico de batches parciales a sus conexiones autorizadas.
+5. Ejecutar contratos orgánicos opt-in con activos no productivos.
+6. Aprovisionar staging: GCS privado/IAM/CMEK/TTL, OIDC, Pub/Sub y DLQ. Ensayar
+   rotación/restore, recuperación y carga equivalente a veinte cuentas.
+7. Regenerar/aprobar el Excel actualizado y revisar seguridad/configuración
+   OAuth. Integrar ramas sólo tras revisión; sin merge automático.
+
+Deploy y publicación permanecen desactivados por defecto. Push al repo privado
+no autoriza despliegue ni publicación de paquetes heredados del upstream.

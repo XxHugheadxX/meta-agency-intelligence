@@ -45,3 +45,14 @@ Confirmar:
 
 La inspección renderizada automatizada complementa, pero no sustituye, la
 apertura final en Microsoft Excel de escritorio.
+
+## Revisión requerida tras la integración de calidad y recomendaciones
+
+La revisión renderizada anterior es un baseline, no aprueba automáticamente
+los cambios de `codex/mvp-data-readiness`. Regenerar el archivo y verificar:
+
+- Resumen Ejecutivo: limitaciones, recomendaciones y evidencia legibles.
+- Alcance/frecuencia no agregables: N/D (guion visual), no cero ni suma de filas.
+- Fórmulas que referencian N/D: cache de texto, sin cero fabricado.
+- Funnel: título orientativo; no promete usuarios únicos ni atribución entre etapas.
+- Recomendaciones: período y caveats presentes; no afirman acciones aplicadas.

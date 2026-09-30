@@ -8,7 +8,7 @@ A Model Context Protocol server that brokers Meta Ads API access for advertising
 
 - **Stack**: Node 20.10+, TypeScript (ESM), Express 5, vitest, Pino, Zod, Firestore. MCP SDK 1.29 (`registerTool` API + `ToolAnnotations`).
 - **Entry**: [src/index.ts](src/index.ts) → [src/transport/http.ts](src/transport/http.ts).
-- **Deploy**: push to `main` triggers [.github/workflows/deploy.yml](.github/workflows/deploy.yml). PRs trigger [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- **Deploy**: manual [.github/workflows/deploy.yml](.github/workflows/deploy.yml), `main` only, gated by `ENABLE_PRODUCTION_DEPLOY=true`. Package publication additionally requires `ENABLE_PACKAGE_PUBLICATION=true`. Leave both disabled until reviewed. PRs trigger [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - **License**: MIT. The working repository is the private
   `XxHugheadxX/meta-agency-intelligence`; the public `meta-ads-mcp` repository
   is read-only upstream reference. Never push product branches to upstream.

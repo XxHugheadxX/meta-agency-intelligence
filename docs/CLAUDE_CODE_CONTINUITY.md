@@ -14,7 +14,8 @@ como referencia.
 5. `docs/PRODUCT_ROADMAP.md`.
 6. `docs/MODEL_DELEGATION_POLICY.md`.
 7. `SECURITY_AUDIT.md`.
-8. El último `git log`, la rama actual y el working tree.
+8. `docs/MVP_READINESS.md` y `docs/SECURITY_REMEDIATION_STATUS.md`.
+9. El último `git log`, la rama actual y el working tree.
 
 No copiar secretos, archivos `.env`, tokens o credenciales al chat. Los
 documentos versionados contienen contexto suficiente y nunca deben contener
@@ -39,7 +40,9 @@ valores reales.
 ## Flujo Git para alternar agentes
 
 1. No usar simultáneamente la misma rama con Codex y Claude Code.
-2. Partir del SHA remoto confirmado de `mvp/read-only-reporting`.
+2. Partir del SHA remoto confirmado de la rama más reciente aprobada. La
+   integración de exactitud está en `codex/mvp-data-readiness`; no volver al
+   baseline `mvp/read-only-reporting` ignorando sus cambios sin revisión.
 3. Crear una rama por tarea, por ejemplo `claude/staging-infrastructure`.
 4. Hacer commits pequeños, sin mezclar documentación, infraestructura y
    producto si pueden revisarse por separado.
@@ -71,6 +74,15 @@ Antes de cada commit o push también se ejecuta la versión de Gitleaks fijada e
 `.gitleaks-version`, con `.gitleaks.toml`, y se revisa `git diff --check`. Nunca
 se salta un hallazgo: se elimina la credencial o se corrige el falso positivo de
 forma revisable.
+
+Si aparecen timeouts durante compilación y tests simultáneos, repetir tests
+sin otros builds activos y con `--maxWorkers=2`. No aumentar timeouts ni declarar
+PASS sólo por atribuir el fallo al equipo; registrar el resultado de la repetición.
+
+Para Meta Ads usar el helper de `docs/META_ADS_API_CONTRACT.md`, nunca un token
+como argumento. No saltar la migración/backfill de `meta-insights-v2`: ambos
+períodos deben usar el mismo dataset. Alcance agregado seguirá N/D hasta contar
+con una fuente única por período; intereses/creative IDs necesitan metadata real.
 
 ## Cierre de cada sesión
 
