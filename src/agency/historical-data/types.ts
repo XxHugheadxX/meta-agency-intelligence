@@ -63,6 +63,7 @@ export interface HistoricalMetricInput {
   adSetName?: string | null;
   adId?: string | null;
   adName?: string | null;
+  creativeId?: string | null;
   contentId?: string | null;
   contentName?: string | null;
   contentType?: string | null;
@@ -92,6 +93,7 @@ export interface HistoricalMetricRow extends ReportingScope {
   adSetName: string | null;
   adId: string | null;
   adName: string | null;
+  creativeId?: string | null;
   contentId: string | null;
   contentName: string | null;
   contentType: string | null;
@@ -118,6 +120,10 @@ export interface HistoricalMetricQuery {
   endDate: string;
   accountIds?: readonly string[];
   level?: HistoricalMetricLevel;
+  breakdownKeys?: readonly string[];
+  attributionWindow?: string | null;
+  apiVersion?: string;
+  schemaVersion?: string;
 }
 
 export interface HistoricalDataRepository {
@@ -239,6 +245,7 @@ export function normalizeHistoricalMetric(
     adSetName: input.adSetName ?? null,
     adId: input.adId ?? null,
     adName: input.adName ?? null,
+    creativeId: input.creativeId ?? null,
     contentId: input.contentId ?? null,
     contentName: input.contentName ?? null,
     contentType: input.contentType ?? null,

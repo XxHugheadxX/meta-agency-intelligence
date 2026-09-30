@@ -35,6 +35,8 @@ export function historicalMetricId(scope: ReportingScope, input: HistoricalMetri
     input.currency,
     input.timezone,
     input.attributionWindow ?? "",
+    input.apiVersion ?? "",
+    input.schemaVersion ?? "v1",
     stableObject(input.breakdowns ?? {}),
   ].join("\u001f");
   return createHash("sha256").update(identity).digest("hex");
@@ -46,6 +48,10 @@ function queryIsValid(query: HistoricalMetricQuery): void {
   if (query.startDate > query.endDate) {
     throw new Error("startDate must be on or before endDate");
   }
+  if (query.breakdownKeys && (new Set(query.breakdownKeys).size !== query.breakdownKeys.length ||
+    query.breakdownKeys.some((key) => !/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(key)))) {
+    throw new Error("Invalid historical breakdown selection");
+  }
 }
 
 function matches(row: HistoricalMetricRow, query: HistoricalMetricQuery): boolean {
@@ -53,7 +59,12 @@ function matches(row: HistoricalMetricRow, query: HistoricalMetricQuery): boolea
     row.date >= query.startDate &&
     row.date <= query.endDate &&
     (!query.level || row.level === query.level) &&
-    (!query.accountIds || query.accountIds.includes(row.accountId))
+    (!query.accountIds || query.accountIds.includes(row.accountId)) &&
+    (query.breakdownKeys === undefined ||
+      JSON.stringify(Object.keys(row.breakdowns).sort()) === JSON.stringify([...query.breakdownKeys].sort())) &&
+    (query.attributionWindow === undefined || row.attributionWindow === query.attributionWindow) &&
+    (query.apiVersion === undefined || row.apiVersion === query.apiVersion) &&
+    (query.schemaVersion === undefined || row.schemaVersion === query.schemaVersion)
   );
 }
 

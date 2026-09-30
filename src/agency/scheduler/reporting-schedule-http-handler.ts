@@ -4,6 +4,7 @@ import express, {
   type Router,
 } from "express";
 import type { WorkloadIdentityVerifier } from "../worker/types.js";
+import { previousPeriod } from "../reporting/index.js";
 import type {
   ReportingFanOutRequest,
   ReportingFanOutResult,
@@ -175,11 +176,13 @@ function fanOutRequest(
 ): ReportingFanOutRequest {
   const currentDate = calendarDate((options.now ?? (() => new Date()))(), options.timeZone);
   const period = completedPeriod(trigger.reportKind, currentDate);
+  const before = previousPeriod({ kind: trigger.reportKind,
+    startDate: isoDate(period.startDate), endDate: isoDate(period.endDate) });
   return {
     ...trigger,
     reportStartDate: isoDate(period.startDate),
     reportEndDate: isoDate(period.endDate),
-    ingestionStartDate: isoDate(addDays(period.startDate, -options.ingestionLookbackDays)),
+    ingestionStartDate: isoDate(addDays(new Date(`${before.startDate}T00:00:00.000Z`), -options.ingestionLookbackDays)),
     ingestionEndDate: isoDate(period.endDate),
     level: "ad",
     apiVersion: options.apiVersion,

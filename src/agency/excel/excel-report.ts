@@ -145,6 +145,9 @@ function cellXml(cell: Cell, rowNumber: number, columnIndex: number): string {
   const reference = `${columnName(columnIndex)}${rowNumber}`;
   const style = cell.style === undefined ? "" : ` s=\"${cell.style}\"`;
   if (cell.formula) {
+    if (typeof cell.value === "string") {
+      return `<c r="${reference}"${style} t="str"><f>${escapeXml(cell.formula)}</f><v>${escapeXml(cleanText(cell.value))}</v></c>`;
+    }
     const cached = typeof cell.value === "number" ? `<v>${cell.value}</v>` : "";
     return `<c r=\"${reference}\"${style}><f>${escapeXml(cell.formula)}</f>${cached}</c>`;
   }
@@ -469,7 +472,7 @@ function chartsFor(
     { title: `Evolución de CPC/CPL (${currencyUnit})`, kind: "line", categories: daily.categories, series: [{ name: "CPC", values: daily.aggregates.map((metric) => metric.cpc) }, { name: "CPL", values: daily.aggregates.map((metric) => metric.cpl) }] },
     { title: "Top campañas", kind: "bar", categories: campaigns.map((entry) => entry.name), series: [{ name: "Leads", values: campaigns.map((entry) => entry.metrics.leads) }] },
     { title: "Top contenidos", kind: "bar", categories: contents.map((entry) => entry.name), series: [{ name: "Interacciones", values: contents.map((entry) => entry.value) }] },
-    { title: "Funnel", kind: "bar", categories: ["Alcance", "Visita", "Clic", "Mensaje", "Lead"], series: [{ name: "Usuarios", values: [report.current.metrics.reach, report.current.metrics.profileVisits, report.current.metrics.clicks, report.current.metrics.messages, report.current.metrics.leads] }] },
+    { title: "Funnel orientativo (etapas no deduplicadas)", kind: "bar", categories: ["Alcance", "Visita", "Clic", "Mensaje", "Lead"], series: [{ name: "Métricas; no usuarios únicos", values: [report.current.metrics.reach, report.current.metrics.profileVisits, report.current.metrics.clicks, report.current.metrics.messages, report.current.metrics.leads] }] },
   ];
   return charts.map((chart) => chart.categories.length > 0
     ? chart
@@ -675,6 +678,24 @@ export class AgencyExcelReportGenerator {
         [{ value: "Contenido orgánico publicado", style: 1 }, { value: "Snapshots lifetime por fecha de publicación." }] as Row,
         [{ value: "Métrica", style: 1 }, { value: "Actual", style: 1 }] as Row,
         ...metricRows(report.sources.content.current.metrics),
+      ] : []),
+      [],
+      [{ value: "Calidad y limitaciones", style: 1 }],
+      ...(report.current.limitations ?? []).map((limitation) => [{ value: "Actual" }, { value: limitation }]),
+      ...(report.previous.limitations ?? []).map((limitation) => [{ value: "Anterior" }, { value: limitation }]),
+      ...(report.segmentation ? [
+        [] as Row,
+        [{ value: "Recomendaciones READ-ONLY", style: 1 }, { value: report.segmentation.ruleVersion }] as Row,
+        [{ value: "Hallazgo", style: 1 }, { value: "Sugerencia para revisión humana", style: 1 },
+          { value: "Confianza", style: 1 }, { value: "Evidencia", style: 1 }, { value: "Limitaciones", style: 1 }] as Row,
+        ...report.segmentation.recommendations.map((recommendation): Row => [
+          { value: recommendation.title }, { value: recommendation.recommendation },
+          { value: recommendation.confidence },
+          { value: JSON.stringify(redactRawData({ period: report.period, ...recommendation.evidence })) },
+          { value: recommendation.caveats.join(" ") },
+        ]),
+        [{ value: "Dimensiones no disponibles" }, { value: report.segmentation.unavailableDimensions.join(", ") }] as Row,
+        [{ value: "Aviso" }, { value: "Hipótesis no causales; umbrales pendientes de calibración. No se modifican campañas." }] as Row,
       ] : []),
     ];
     const sheets: Sheet[] = [

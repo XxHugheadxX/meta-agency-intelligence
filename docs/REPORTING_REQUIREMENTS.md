@@ -58,12 +58,26 @@ El tipo exacto de clic, lead, conversión y ventana de atribución debe guardars
 como dimensión. No mezclar métricas con definiciones distintas en una misma
 serie.
 
+Implementación actual: `meta-insights-v2` conserva en raw sanitizado la política
+`canonical-action-v1` y el tipo de acción seleccionado. Leads y mensajes usan
+el primer tipo presente de una lista priorizada, no la suma de aliases. Si hay
+múltiples objetivos de conversión, el total es N/D; si las filas tienen tipos
+distintos para una métrica, esa métrica agregada también es N/D. Esta política
+requiere conciliación con los objetivos reales antes del piloto.
+
+Alcance es un conteo no aditivo: no se suman personas entre días, anuncios o
+cuentas. Mientras falten snapshots únicos del período, los totales de alcance
+y frecuencia son N/D. Las filas fuente conservan el alcance informado por Meta.
+El funnel compara métricas de etapas, no identifica una cohorte de personas.
+
 ## Periodos y tiempo
 
 - Guardar timestamps en UTC.
 - Configurar timezone de presentación por workspace.
 - Semana y mes deben tener límites deterministas.
 - Comparaciones mínimas: periodo anterior y mismo periodo disponible.
+- Un reporte mensual compara meses calendario completos, incluso si tienen
+  distinta duración. Los rangos custom conservan comparación de igual duración.
 - Conservar fecha de extracción, versión de API, moneda, timezone, nivel de
   breakdown y ventana de atribución.
 
@@ -78,6 +92,13 @@ serie.
 - Conciliar gasto y resultados agregados contra el total de cuenta dentro de
   tolerancias definidas.
 - Mantener lineage desde cada celda/KPI hasta la consulta y snapshot fuente.
+- Separar identidades de snapshots por versión API y esquema. Cambiar la
+  identidad exige un backfill/migración revisado; no borrar histórico ni sumar
+  registros antiguos y nuevos automáticamente.
+- El dataset paid default excluye breakdowns. Seleccionar un breakdown requiere
+  el mismo conjunto de claves, atribución, API y esquema en ambos períodos.
+- Los agregados con cobertura parcial deben advertirlo explícitamente; no deben
+  presentarse como totales conciliados ni usar valores ausentes como cero.
 
 ## Workbook Excel
 

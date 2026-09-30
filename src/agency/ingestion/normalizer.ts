@@ -6,19 +6,19 @@ import {
 } from "../historical-data/index.js";
 import type { IngestionAccount, MetaInsightRecord } from "./types.js";
 
-const MESSAGE_ACTIONS = new Set([
+const MESSAGE_ACTIONS = [
   "onsite_conversion.messaging_first_reply",
   "onsite_conversion.total_messaging_connection",
-]);
-const CONVERSATION_ACTIONS = new Set([
+];
+const CONVERSATION_ACTIONS = [
   "onsite_conversion.messaging_conversation_started_7d",
   "messaging_conversation_started_7d",
-]);
-const LEAD_ACTIONS = new Set([
+];
+const LEAD_ACTIONS = [
   "lead",
   "onsite_conversion.lead_grouped",
   "offsite_conversion.fb_pixel_lead",
-]);
+];
 const SENSITIVE_KEY = /(?:token|secret|authorization|password|api[_-]?key|private[_-]?key|credential|cookie|session)/i;
 const SENSITIVE_VALUE = /(?:\bBearer\s+[A-Za-z0-9._~-]+|\bEAA[A-Za-z0-9_-]{12,}|(?:access_token|refresh_token|id_token|client_secret)=[^&\s]+)/i;
 
@@ -42,18 +42,19 @@ function optionalMetric(value: unknown, field: string): number | null {
   return parsed;
 }
 
-function sumActions(values: readonly ActionValue[] | undefined, allowed?: ReadonlySet<string>): number | null {
-  if (!values) return null;
-  let total = 0;
-  let matched = false;
-  for (const action of values) {
-    if (allowed && !allowed.has(action.action_type)) continue;
-    const value = optionalMetric(action.value, `action ${action.action_type}`);
-    if (value === null) continue;
-    total += value;
-    matched = true;
+function selectAction(values: readonly ActionValue[] | undefined, priority?: readonly string[]) {
+  const available = values ?? [];
+  const candidates = priority ?? [...new Set(available.map((action) => action.action_type))];
+  // Different action types can describe the same event; never add aliases or goals.
+  if (!priority && candidates.length !== 1) return { value: null, actionType: null };
+  for (const actionType of candidates) {
+    const matching = available.filter((action) => action.action_type === actionType);
+    if (matching.length > 1) return { value: null, actionType };
+    if (matching.length === 1) {
+      return { value: optionalMetric(matching[0].value, "selected action"), actionType };
+    }
   }
-  return matched ? total : null;
+  return { value: null, actionType: null };
 }
 
 function ratio(numerator: number | null, denominator: number | null, multiplier = 1): number | null {
@@ -118,10 +119,15 @@ export function normalizeMetaInsight(
   const reach = optionalMetric(record.reach, "reach");
   const impressions = optionalMetric(record.impressions, "impressions");
   const clicks = optionalMetric(record.clicks, "clicks");
-  const messages = sumActions(record.actions, MESSAGE_ACTIONS);
-  const conversations = sumActions(record.actions, CONVERSATION_ACTIONS);
-  const leads = sumActions(record.actions, LEAD_ACTIONS);
-  const conversions = sumActions(record.conversions);
+  const selected = {
+    messages: selectAction(record.actions, MESSAGE_ACTIONS),
+    conversations: selectAction(record.actions, CONVERSATION_ACTIONS),
+    leads: selectAction(record.actions, LEAD_ACTIONS),
+    conversions: selectAction(record.conversions),
+  };
+  const { messages, conversations, leads, conversions } = Object.fromEntries(
+    Object.entries(selected).map(([name, action]) => [name, action.value]),
+  ) as Record<keyof typeof selected, number | null>;
   const breakdowns = Object.fromEntries(
     context.breakdowns.flatMap((name) => {
       const value = record[name];
@@ -163,13 +169,18 @@ export function normalizeMetaInsight(
     attributionWindow: context.attributionWindow,
     breakdowns,
     apiVersion: context.apiVersion,
-    schemaVersion: "meta-insights-v1",
+    schemaVersion: "meta-insights-v2",
     extractedAt: context.extractedAt,
     quality: daily ? "complete" : "partial",
     rawData: {
       source: "meta_ads_insights",
       runId: context.runId,
       pageNumber: context.pageNumber,
+      metricDefinitions: {
+        policy: "canonical-action-v1",
+        actionTypes: Object.fromEntries(Object.entries(selected).map(([name, action]) => [name, action.actionType])),
+        ambiguousConversions: new Set((record.conversions ?? []).map((action) => action.action_type)).size > 1,
+      },
       payload: sanitizeRaw(record),
     },
   };

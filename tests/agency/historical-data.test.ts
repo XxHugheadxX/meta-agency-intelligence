@@ -32,7 +32,7 @@ describe("historical reporting data", () => {
     expect(historicalMetricId(tenantA, base)).not.toBe(
       historicalMetricId(tenantA, metricFixture({ currency: "USD" })),
     );
-    expect(historicalMetricId(tenantA, base)).toBe(
+    expect(historicalMetricId(tenantA, base)).not.toBe(
       historicalMetricId(tenantA, metricFixture({ apiVersion: "v24.0", schemaVersion: "v2" })),
     );
   });

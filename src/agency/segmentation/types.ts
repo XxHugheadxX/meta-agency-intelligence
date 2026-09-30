@@ -89,6 +89,8 @@ export interface SegmentationRecommendation {
 }
 
 export interface SegmentationAnalysis {
+  readonly ruleVersion: string;
+  readonly period?: { readonly startDate: string; readonly endDate: string };
   readonly scope: ReportingScope;
   readonly analyzedRows: number;
   readonly excludedRows: number;

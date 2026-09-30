@@ -95,7 +95,7 @@ describe("AgencyExcelReportGenerator", () => {
     expect(files.get("xl/styles.xml")).toContain('<color rgb="FFFFFFFF"/>');
     expect(files.get("xl/worksheets/sheet1.xml")).toContain("<v>0.05</v>");
     expect(files.get("xl/worksheets/sheet2.xml")).toContain(
-      "<f>&apos;Resumen Ejecutivo&apos;!B5</f><v>1500</v>",
+      '<c r="B3" s="2" t="str"><f>&apos;Resumen Ejecutivo&apos;!B5</f><v>—</v></c>',
     );
     expect(files.get("xl/worksheets/sheet2.xml")).toContain(
       'min="16" max="16384" width="2" hidden="1"',

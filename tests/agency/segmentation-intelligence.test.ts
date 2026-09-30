@@ -13,6 +13,7 @@ function row(id: string, overrides: Partial<HistoricalMetricInput> = {}, tenant 
     ...metricFixture({
       breakdowns: { location: "Norte", age: "25-34", gender: "female", interest: "inmuebles", placement: "instagram_feed", device: "mobile", audience: "Prospecting" },
       metrics: { spend: 20, reach: 500, impressions: 1_000, clicks: 40, messages: 5, leads: 5, conversions: 2 },
+      creativeId: "creative-real-100",
       ...overrides,
     }),
   }, id, undefined, "2026-08-12T00:00:00.000Z");
@@ -43,13 +44,14 @@ describe("segmentation intelligence", () => {
     expect(analysis.performances.some((entry) => entry.dimension === "campaign")).toBe(true);
     expect(analysis.performances.some((entry) => entry.dimension === "creative")).toBe(true);
     expect(analysis.recommendations.map((entry) => entry.kind)).toEqual(expect.arrayContaining([
-      "good_ctr_bad_cpl", "low_ctr", "saturated_audience", "best_location", "budget_redistribution", "ab_test",
+      "good_ctr_bad_cpl", "low_ctr", "best_location", "budget_redistribution", "ab_test",
     ]));
     const recommendation = analysis.recommendations[0];
     expect(recommendation).toMatchObject({ evidence: { currency: "BOB", metrics: expect.any(Object) }, caveats: expect.any(Array) });
     expect(recommendation.caveats).toContain(
-      "Alcance y frecuencia agregados no deduplican personas entre días, anuncios o ad sets.",
+      "Alcance y frecuencia: N/D sin un snapshot de alcance único; no se deduplican personas sumando filas.",
     );
+    expect(analysis.recommendations.some((entry) => entry.kind === "saturated_audience")).toBe(false);
   });
 
   it("does not combine monetary data across currencies or manufacture unavailable ratios", () => {

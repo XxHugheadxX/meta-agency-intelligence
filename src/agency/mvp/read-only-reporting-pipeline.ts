@@ -69,6 +69,11 @@ export class AgencyReadOnlyReportingPipeline {
       period: input.period,
       paidGranularity: input.ingestion.level,
       sourceAccountIds: input.reportSourceAccountIds,
+      paidDataset: {
+        breakdownKeys: input.ingestion.breakdowns ?? [],
+        attributionWindow: input.ingestion.attributionWindow ?? null,
+        apiVersion: input.ingestion.apiVersion,
+      },
     });
     const excel = this.excel.generate(report, input.excel);
     return { ingestion, organicIngestions, contentIngestions, report, excel };

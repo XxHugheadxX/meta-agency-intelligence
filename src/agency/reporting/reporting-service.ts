@@ -3,12 +3,15 @@ import {
   METRIC_NAMES,
   type HistoricalDataRepository,
   type HistoricalMetricLevel,
+  type HistoricalMetricQuery,
   type HistoricalMetricRow,
   type MetricName,
   type MetricValues,
   type PaidHistoricalMetricLevel,
   type ReportingScope,
 } from "../historical-data/index.js";
+import { analyzeSegmentation, type SegmentationAnalysis } from "../segmentation/index.js";
+import { mixedActionTypes, uniqueReach } from "../analytics/metric-definitions.js";
 
 export interface ReportPeriod {
   kind: "week" | "month" | "custom";
@@ -29,6 +32,7 @@ export interface AggregateMetrics {
   currencies: readonly string[];
   currencyBreakdown: Readonly<Record<string, MetricValues>>;
   qualityCounts: Readonly<Record<HistoricalMetricRow["quality"], number>>;
+  limitations?: readonly string[];
 }
 
 export interface RankingEntry {
@@ -65,12 +69,17 @@ export interface AgencyReport {
   rawRows: readonly HistoricalMetricRow[];
   /** Present for unified workbooks. Source datasets stay separate to prevent double counting. */
   sources?: AgencyReportSources;
+  segmentation?: SegmentationAnalysis;
 }
+
+export type ReportDatasetSelection = Pick<HistoricalMetricQuery,
+  "breakdownKeys" | "attributionWindow" | "apiVersion" | "schemaVersion">;
 
 export interface CreateReportInput {
   period: ReportPeriod;
   granularity?: HistoricalMetricLevel;
   rankBy?: MetricName;
+  dataset?: ReportDatasetSelection;
 }
 
 export interface CreateUnifiedReportInput {
@@ -78,6 +87,7 @@ export interface CreateUnifiedReportInput {
   paidGranularity?: PaidHistoricalMetricLevel;
   rankBy?: MetricName;
   sourceAccountIds?: AgencyReportSourceAccountIds;
+  paidDataset?: ReportDatasetSelection;
 }
 
 export interface AgencyReportSourceAccountIds {
@@ -106,6 +116,8 @@ function emptyMetrics(): MetricValues {
 }
 
 function sumMetric(rows: readonly HistoricalMetricRow[], name: MetricName): number | null {
+  if (mixedActionTypes(rows, name)) return null;
+  if (name === "reach") return uniqueReach(rows);
   if (name === "ctr" || name === "cpc" || name === "cpm" || name === "cpl" || name === "frequency") {
     return null;
   }
@@ -182,6 +194,16 @@ export function aggregateRows(rows: readonly HistoricalMetricRow[]): AggregateMe
     currencies,
     currencyBreakdown,
     qualityCounts,
+    limitations: [
+      ...METRIC_NAMES.filter((name) => mixedActionTypes(rows, name))
+        .map((name) => `${name}: N/D; las filas usan tipos de acción diferentes.`),
+      ...(rows.length === 0 ? ["Sin filas disponibles para el período seleccionado."] : []),
+      ...(rows.length > 1 && rows.some((row) => row.metrics.reach !== null)
+        ? ["Alcance único y frecuencia del período: N/D; no se suman personas entre días, anuncios o cuentas."] : []),
+      ...(METRIC_NAMES.some((name) => rows.some((row) => row.metrics[name] === null) &&
+        rows.some((row) => row.metrics[name] !== null))
+        ? ["Cobertura parcial: algunas métricas sólo incluyen filas con valores disponibles."] : []),
+    ],
   };
 }
 
@@ -225,6 +247,15 @@ export function previousPeriod(period: ReportPeriod): ReportPeriod {
   assertIsoDate(period.endDate, "endDate");
   if (period.startDate > period.endDate) {
     throw new Error("startDate must be on or before endDate");
+  }
+  if (period.kind === "month") {
+    const instant = new Date(`${period.startDate}T00:00:00.000Z`);
+    const current = monthlyPeriod(instant.getUTCFullYear(), instant.getUTCMonth() + 1);
+    if (period.startDate !== current.startDate || period.endDate !== current.endDate) {
+      throw new Error("A monthly report must cover a complete calendar month");
+    }
+    return monthlyPeriod(instant.getUTCMonth() === 0 ? instant.getUTCFullYear() - 1 : instant.getUTCFullYear(),
+      instant.getUTCMonth() === 0 ? 12 : instant.getUTCMonth());
   }
   const length = daysBetween(period.startDate, period.endDate) + 1;
   return {
@@ -281,11 +312,33 @@ async function reportDataset(
   before: ReportPeriod,
   granularity: HistoricalMetricLevel,
   accountIds?: readonly string[],
+  selection: ReportDatasetSelection = {},
 ): Promise<AgencyReportDataset> {
+  const paid = ["account", "campaign", "ad_set", "ad"].includes(granularity);
+  const query = { ...selection, ...(paid ? { breakdownKeys: selection.breakdownKeys ?? [] } : {}) };
   const [currentRows, previousRows] = await Promise.all([
-    historicalData.list(scope, { ...period, level: granularity, accountIds }),
-    historicalData.list(scope, { ...before, level: granularity, accountIds }),
+    historicalData.list(scope, { ...period, level: granularity, accountIds, ...query }),
+    historicalData.list(scope, { ...before, level: granularity, accountIds, ...query }),
   ]);
+  if (paid) {
+    for (const field of ["attributionWindow", "apiVersion", "schemaVersion"] as const) {
+      if (new Set([...currentRows, ...previousRows].map((row) => row[field])).size > 1) {
+        throw new Error(`Paid reporting requires a homogeneous ${field} dataset`);
+      }
+    }
+    const timezones = new Map<string, string>();
+    const identities = new Set<string>();
+    for (const row of [...currentRows, ...previousRows]) {
+      if (timezones.has(row.accountId) && timezones.get(row.accountId) !== row.timezone) {
+        throw new Error("Paid reporting requires a stable timezone per account");
+      }
+      timezones.set(row.accountId, row.timezone);
+      const identity = JSON.stringify([row.accountId, row.campaignId, row.adSetId, row.adId,
+        row.date, row.currency, Object.entries(row.breakdowns).sort()]);
+      if (identities.has(identity)) throw new Error("Duplicate paid source snapshots require migration before reporting");
+      identities.add(identity);
+    }
+  }
   const current = aggregateRows(currentRows);
   const previous = aggregateRows(previousRows);
   return {
@@ -309,6 +362,8 @@ export class AgencyReportingService {
       input.period,
       before,
       granularity,
+      undefined,
+      input.dataset,
     );
     const rankBy = input.rankBy ?? "leads";
     return {
@@ -322,6 +377,9 @@ export class AgencyReportingService {
       accountRanking: ranking(dataset.rawRows, "account", rankBy),
       agentRanking: ranking(dataset.rawRows, "agent", rankBy),
       rawRows: dataset.rawRows,
+      ...(["account", "campaign", "ad_set", "ad"].includes(granularity) ? {
+        segmentation: { ...analyzeSegmentation(scope, dataset.rawRows), period: { ...input.period } },
+      } : {}),
     };
   }
 
@@ -347,6 +405,7 @@ export class AgencyReportingService {
         before,
         paidGranularity,
         sourceAccountIds?.paid,
+        input.paidDataset,
       ),
       reportDataset(
         this.historicalData,
@@ -378,6 +437,7 @@ export class AgencyReportingService {
       agentRanking: ranking(paid.rawRows, "agent", rankBy),
       rawRows: paid.rawRows,
       sources: { paid, organicAccount, content },
+      segmentation: { ...analyzeSegmentation(scope, paid.rawRows), period: { ...input.period } },
     };
   }
 

@@ -285,6 +285,12 @@ export class AgencyReportingBatchCoordinator implements ReportingBatchCompletion
       const report = await new AgencyReportingService(this.historical).createUnifiedReport(scope, {
         period: { kind: job.reportKind, startDate: job.reportStartDate, endDate: job.reportEndDate },
         paidGranularity: job.level,
+        sourceAccountIds: { paid: job.batchAccountIds },
+        paidDataset: {
+          breakdownKeys: job.breakdowns ?? [],
+          attributionWindow: job.attributionWindow ?? null,
+          apiVersion: job.apiVersion,
+        },
       });
       const artifact = await this.artifacts.store(scope, {
         jobId: job.batchId,

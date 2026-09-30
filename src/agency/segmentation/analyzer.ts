@@ -1,5 +1,6 @@
 import { assertReportingScope, type HistoricalMetricRow, type ReportingScope } from "../historical-data/index.js";
 import { buildSegmentationRecommendations } from "../recommendations/index.js";
+import { mixedActionTypes, uniqueReach } from "../analytics/metric-definitions.js";
 import type {
   SegmentPerformance,
   SegmentationAnalysis,
@@ -59,6 +60,7 @@ function ratio(numerator: number | null, denominator: number | null, multiplier 
 }
 
 function sum(rows: readonly HistoricalMetricRow[], name: "spend" | "reach" | "impressions" | "clicks" | "messages" | "leads" | "conversions"): number | null {
+  if (mixedActionTypes(rows, name)) return null;
   let total = 0;
   let found = false;
   for (const row of rows) {
@@ -70,7 +72,7 @@ function sum(rows: readonly HistoricalMetricRow[], name: "spend" | "reach" | "im
 
 export function segmentationMetrics(rows: readonly HistoricalMetricRow[]): SegmentationMetrics {
   const spend = sum(rows, "spend");
-  const reach = sum(rows, "reach");
+  const reach = uniqueReach(rows);
   const impressions = sum(rows, "impressions");
   const clicks = sum(rows, "clicks");
   const leads = sum(rows, "leads");
@@ -95,7 +97,7 @@ function breakdownValue(row: HistoricalMetricRow, dimension: SegmentationDimensi
     return row.adSetId ? { id: row.adSetId, name: row.adSetName ?? row.adSetId } : null;
   }
   if (dimension === "creative") {
-    return row.adId ? { id: row.adId, name: row.adName ?? row.adId } : null;
+    return row.creativeId ? { id: row.creativeId, name: row.creativeId } : null;
   }
   for (const key of BREAKDOWN_KEYS[dimension]) {
     const value = row.breakdowns[key];
@@ -121,7 +123,7 @@ function performance(
   if ((metrics.impressions ?? 0) < options.minimumImpressions) caveats.push(`Impresiones insuficientes: ${metrics.impressions ?? 0}/${options.minimumImpressions} mínimas.`);
   if (metrics.spend === null) caveats.push("Sin gasto disponible; no se evalúan CPC ni CPL.");
   if (metrics.ctr === null) caveats.push("Sin impresiones o clics válidos; no se calcula CTR.");
-  caveats.push("Alcance y frecuencia agregados no deduplican personas entre días, anuncios o ad sets.");
+  if (metrics.reach === null) caveats.push("Alcance y frecuencia: N/D sin un snapshot de alcance único; no se deduplican personas sumando filas.");
   return {
     dimension,
     segmentId,
@@ -149,6 +151,10 @@ export function analyzeSegmentation(
   assertReportingScope(scope);
   const options = resolveOptions(inputOptions);
   const scoped = scopedRows(scope, rows);
+  const datasets = new Set(scoped.owned.map((row) => JSON.stringify([
+    row.level, Object.keys(row.breakdowns).sort(), row.attributionWindow, row.apiVersion, row.schemaVersion,
+  ])));
+  if (datasets.size > 1) throw new Error("Segmentation requires one homogeneous source dataset");
   const groups = new Map<string, HistoricalMetricRow[]>();
   const available = new Set<SegmentationDimension>();
   for (const row of scoped.owned) {
@@ -186,5 +192,5 @@ export function analyzeSegmentation(
   const baselines = Object.fromEntries([...baselineGroups.entries()].map(([currency, entries]) => [currency, segmentationMetrics(entries)]));
   const unavailableDimensions = options.dimensions.filter((dimension) => !available.has(dimension));
   const recommendations = buildSegmentationRecommendations(performances, baselines, options);
-  return { scope: { ...scope }, analyzedRows: scoped.owned.length, excludedRows: scoped.excluded, performances, baselines, unavailableDimensions, recommendations };
+  return { ruleVersion: "segmentation-v2", scope: { ...scope }, analyzedRows: scoped.owned.length, excludedRows: scoped.excluded, performances, baselines, unavailableDimensions, recommendations };
 }

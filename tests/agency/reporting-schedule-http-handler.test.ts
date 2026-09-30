@@ -94,7 +94,7 @@ describe("reporting schedule HTTP handler", () => {
       reportKind: "week",
       reportStartDate: "2026-08-17",
       reportEndDate: "2026-08-23",
-      ingestionStartDate: "2026-08-15",
+      ingestionStartDate: "2026-08-08",
       ingestionEndDate: "2026-08-23",
       level: "ad",
       apiVersion: "v23.0",
@@ -118,7 +118,7 @@ describe("reporting schedule HTTP handler", () => {
     expect(scheduler.publish).toHaveBeenCalledWith(expect.objectContaining({
       reportStartDate: "2026-07-01",
       reportEndDate: "2026-07-31",
-      ingestionStartDate: "2026-06-29",
+      ingestionStartDate: "2026-05-30",
       ingestionEndDate: "2026-07-31",
     }));
   });

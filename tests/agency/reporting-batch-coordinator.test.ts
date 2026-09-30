@@ -20,6 +20,7 @@ function job(accountId: string, scope = tenantA): ReportingJobPayload {
     endDate: "2026-08-31",
     level: "ad",
     apiVersion: "v23.0",
+    attributionWindow: "7d_click",
     reportKind: "month",
     reportStartDate: "2026-08-01",
     reportEndDate: "2026-08-31",
@@ -40,6 +41,9 @@ describe("agency reporting batch coordinator", () => {
         metrics: { reach: accountId === "act_100" ? 100 : 200 },
       }));
     }
+    await historical.upsert(tenantA, metricFixture({ accountId: "act_300", accountName: "EXCLUDED-ACCOUNT" }));
+    await historical.upsert(tenantA, metricFixture({ accountId: "act_100", campaignName: "EXCLUDED-BREAKDOWN",
+      breakdowns: { age: "25-34" } }));
     const artifacts = new InMemoryReportArtifactStore(() => Date.parse("2026-09-01T00:00:00.000Z"));
     const coordinator = new AgencyReportingBatchCoordinator(
       new InMemoryReportingBatchRepository(() => Date.parse("2026-09-01T00:00:00.000Z")),
@@ -57,6 +61,8 @@ describe("agency reporting batch coordinator", () => {
     );
     expect(workbook).toContain("act_100");
     expect(workbook).toContain("act_200");
+    expect(workbook).not.toContain("EXCLUDED-ACCOUNT");
+    expect(workbook).not.toContain("EXCLUDED-BREAKDOWN");
     await expect(coordinator.record(job("act_200"))).resolves.toBeNull();
     await expect(artifacts.getMetadata(tenantB, consolidated?.artifactId ?? "")).resolves.toBeNull();
   });

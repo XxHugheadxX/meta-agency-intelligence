@@ -25,7 +25,7 @@ describe("AgencyReportingService", () => {
 
     expect(report.current.metrics).toMatchObject({
       spend: 150,
-      reach: 1_500,
+      reach: null,
       impressions: 3_000,
       clicks: 125,
       leads: 13,
@@ -33,7 +33,7 @@ describe("AgencyReportingService", () => {
       cpc: 150 / 125,
       cpm: 150 / 3_000 * 1_000,
       cpl: 150 / 13,
-      frequency: 2,
+      frequency: null,
     });
     expect(report.comparison.spend).toMatchObject({ current: 150, previous: 80, absoluteChange: 70, percentageChange: 87.5 });
     expect(report.accountRanking.map((entry) => entry.id)).toEqual(["act_200", "act_100"]);
@@ -77,7 +77,7 @@ describe("AgencyReportingService", () => {
     expect(report.current.currencyBreakdown.USD.spend).toBe(10);
   });
 
-  it("compares a calendar month with the immediately preceding equal-length period", async () => {
+  it("compares a calendar month with the complete preceding calendar month", async () => {
     const repository = new InMemoryHistoricalDataRepository();
     await repository.upsert(
       tenantA,
@@ -94,7 +94,7 @@ describe("AgencyReportingService", () => {
       2,
     );
     expect(report.period).toEqual({ kind: "month", startDate: "2026-02-01", endDate: "2026-02-28" });
-    expect(report.previousPeriod).toEqual({ kind: "month", startDate: "2026-01-04", endDate: "2026-01-31" });
+    expect(report.previousPeriod).toEqual({ kind: "month", startDate: "2026-01-01", endDate: "2026-01-31" });
     expect(report.comparison.leads).toMatchObject({
       current: 10,
       previous: 5,
@@ -105,7 +105,7 @@ describe("AgencyReportingService", () => {
   it("aggregates follower stock using the latest value per organic asset", async () => {
     const repository = new InMemoryHistoricalDataRepository();
     const organic = {
-      level: "account" as const,
+      level: "organic_account" as const,
       campaignId: null,
       campaignName: null,
       adSetId: null,
@@ -139,7 +139,7 @@ describe("AgencyReportingService", () => {
     const report = await new AgencyReportingService(repository).createWeeklyReport(
       tenantA,
       "2026-08-12",
-      "account",
+      "organic_account",
     );
     expect(report.current.metrics.followerCount).toBe(703);
     expect(report.current.metrics.newFollowers).toBe(6);

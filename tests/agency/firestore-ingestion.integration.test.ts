@@ -95,6 +95,23 @@ describeEmulator("Firestore agency ingestion integration", () => {
     })).resolves.toEqual([]);
   });
 
+  it("preserves and selects breakdown, API, schema and attribution datasets independently", async () => {
+    const base = metricFixture({ accountId: "act_601", date: "2026-08-15", metrics: { spend: 10 } });
+    await historical.upsertMany(tenantA, [base,
+      { ...base, breakdowns: { age: "25-34" } },
+      { ...base, apiVersion: "v24.0" },
+      { ...base, schemaVersion: "meta-insights-v2" },
+      { ...base, attributionWindow: "1d_click" },
+    ]);
+    const query = { startDate: base.date, endDate: base.date, accountIds: [base.accountId] };
+    await expect(historical.list(tenantA, query)).resolves.toHaveLength(5);
+    await expect(historical.list(tenantA, { ...query, breakdownKeys: [],
+      apiVersion: base.apiVersion, schemaVersion: "meta-insights-v2", attributionWindow: base.attributionWindow,
+    })).resolves.toHaveLength(1);
+    await expect(historical.list(tenantA, { ...query, breakdownKeys: ["age"] })).resolves.toHaveLength(1);
+    await expect(historical.list(tenantB, query)).resolves.toEqual([]);
+  });
+
   it("keeps checkpoints monotonic during concurrent writes", async () => {
     const key = {
       accountId: "act_301",

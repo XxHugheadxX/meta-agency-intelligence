@@ -163,7 +163,7 @@ describe("read-only reporting MVP end-to-end", () => {
     expect(result.report.scope).toEqual(tenantA);
     expect(result.report.current.metrics).toMatchObject({
       spend: 200,
-      reach: 2400,
+      reach: null,
       impressions: 4000,
       clicks: 184,
       messages: 18,
