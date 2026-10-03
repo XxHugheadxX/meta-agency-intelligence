@@ -4,7 +4,8 @@ import type { ReportArtifactStore, StoredReportArtifact } from "../delivery/inde
 import { AgencyExcelReportGenerator } from "../excel/index.js";
 import { assertIsoDate, assertReportingScope, type HistoricalDataRepository, type ReportingScope } from "../historical-data/index.js";
 import { AgencyReportingService } from "../reporting/index.js";
-import type { ReportingJobPayload } from "./types.js";
+import type { IngestionConnectionResolver, ReportingJobPayload } from "./types.js";
+import { assertReadOnlyConnection } from "./worker.js";
 
 const CLAIM_TTL_MS = 5 * 60_000;
 const COLLECTION = "agency_reporting_batches";
@@ -270,7 +271,26 @@ export class AgencyReportingBatchCoordinator implements ReportingBatchCompletion
     private readonly artifacts: ReportArtifactStore,
     private readonly excel = new AgencyExcelReportGenerator(),
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly connections?: IngestionConnectionResolver,
   ) {}
+
+  private async organicAssetIds(scope: ReportingScope, accountIds: readonly string[]): Promise<string[]> {
+    // No resolver means paid-only, never a fallback to all workspace assets.
+    if (!this.connections) return [];
+    const assets = new Set<string>();
+    for (const accountId of accountIds) {
+      const connection = await this.connections.resolve(scope, accountId);
+      if (connection.scope.tenantId !== scope.tenantId ||
+        connection.scope.workspaceId !== scope.workspaceId ||
+        connection.account.accountId !== accountId ||
+        !connection.allowedAccountIds.includes(accountId)) {
+        throw new Error("Reporting batch connection identity is invalid");
+      }
+      assertReadOnlyConnection(connection);
+      for (const asset of connection.organicAssets ?? []) assets.add(asset.assetId);
+    }
+    return [...assets].sort();
+  }
 
   async record(job: ReportingJobPayload): Promise<StoredReportArtifact | null> {
     if (!job.batchId || !job.batchAccountIds) return null;
@@ -282,10 +302,13 @@ export class AgencyReportingBatchCoordinator implements ReportingBatchCompletion
     if (recorded.status !== "claimed") return null;
     try {
       const generatedAt = this.now();
+      const organicAssetIds = await this.organicAssetIds(scope, job.batchAccountIds);
       const report = await new AgencyReportingService(this.historical).createUnifiedReport(scope, {
         period: { kind: job.reportKind, startDate: job.reportStartDate, endDate: job.reportEndDate },
         paidGranularity: job.level,
-        sourceAccountIds: { paid: job.batchAccountIds },
+        sourceAccountIds: {
+          paid: job.batchAccountIds, organicAccount: organicAssetIds, content: organicAssetIds,
+        },
         paidDataset: {
           breakdownKeys: job.breakdowns ?? [],
           attributionWindow: job.attributionWindow ?? null,

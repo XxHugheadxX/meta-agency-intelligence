@@ -76,6 +76,9 @@ export function createReportingJobEndpointDependencies(
       new FirestoreReportingBatchRepository(db),
       historicalData,
       artifacts,
+      undefined,
+      undefined,
+      connections,
     ),
   );
   return { worker, identities };
