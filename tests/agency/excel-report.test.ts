@@ -55,6 +55,26 @@ async function sampleReport() {
 }
 
 describe("AgencyExcelReportGenerator", () => {
+  it("exports incomplete cost ratios as text rather than manufacturing numeric KPIs", async () => {
+    const repository = new InMemoryHistoricalDataRepository();
+    await repository.upsert(tenantA, metricFixture({
+      metrics: { spend: 100, impressions: 1000, clicks: 10, leads: 2 },
+    }));
+    await repository.upsert(tenantA, metricFixture({
+      date: "2026-08-11", metrics: { spend: 100, impressions: 1000, clicks: null, leads: null },
+    }));
+    const report = await new AgencyReportingService(repository).createWeeklyReport(tenantA, "2026-08-12");
+    const files = unzipStored(new AgencyExcelReportGenerator().generate(report).bytes);
+    const summary = files.get("xl/worksheets/sheet1.xml") ?? "";
+    const dashboard = files.get("xl/worksheets/sheet2.xml") ?? "";
+    expect(report.current.metrics).toMatchObject({ spend: 200, cpc: null, cpl: null, ctr: null });
+    expect(summary).toContain("CPL: N/D; cobertura incompleta");
+    for (const metricRow of [19, 20]) {
+      expect(summary).toMatch(new RegExp(`<c r="B${metricRow}"[^>]*t="inlineStr"[^>]*>.*?<t[^>]*>—</t>`));
+      expect(dashboard).toMatch(new RegExp(`<c r="B${metricRow - 2}"[^>]*t="str"><f>[^<]*B${metricRow}</f><v>—</v>`));
+    }
+  });
+
   it("creates an editable macro-free XLSX with every reporting worksheet and native charts", async () => {
     const report = await sampleReport();
     const result = new AgencyExcelReportGenerator().generate(report, { generatedAt: "2026-08-12T00:00:00.000Z" });

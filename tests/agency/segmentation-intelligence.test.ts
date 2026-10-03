@@ -20,6 +20,25 @@ function row(id: string, overrides: Partial<HistoricalMetricInput> = {}, tenant 
 }
 
 describe("segmentation intelligence", () => {
+  it.each(["spend", "impressions", "clicks", "leads"] as const)(
+    "excludes recommendations with incomplete %s coverage",
+    (missing) => {
+      const rows = [row("complete"), row("partial", {
+        date: "2026-08-13",
+        metrics: { spend: 100, impressions: 1000, clicks: 20, leads: 1, conversions: 1, [missing]: null },
+      })];
+      const analysis = analyzeSegmentation(tenantA, rows, {
+        dimensions: ["location"], minimumRows: 1, minimumImpressions: 0,
+      });
+      expect(analysis.ruleVersion).toBe("segmentation-v3");
+      expect(analysis.performances[0].sampleEligible).toBe(false);
+      expect(analysis.performances[0].caveats.some((note) => note.includes("cobertura incompleta"))).toBe(true);
+      expect(analysis.recommendations).toEqual([]);
+      if (missing === "leads") expect(analysis.baselines.BOB.cpl).toBeNull();
+      if (missing === "clicks") expect(analysis.baselines.BOB.conversionRate).toBeNull();
+    },
+  );
+
   it("keeps tenant data isolated and returns read-only structured recommendations", () => {
     const rows = [
       ...[1, 2, 3].map((index) => row(`norte-${index}`)),

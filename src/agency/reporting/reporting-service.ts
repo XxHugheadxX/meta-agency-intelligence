@@ -11,7 +11,7 @@ import {
   type ReportingScope,
 } from "../historical-data/index.js";
 import { analyzeSegmentation, type SegmentationAnalysis } from "../segmentation/index.js";
-import { mixedActionTypes, uniqueReach } from "../analytics/metric-definitions.js";
+import { metricRatio, mixedActionTypes, ratioCoverageLimitations, uniqueReach } from "../analytics/metric-definitions.js";
 
 export interface ReportPeriod {
   kind: "week" | "month" | "custom";
@@ -148,20 +148,15 @@ function sumMetric(rows: readonly HistoricalMetricRow[], name: MetricName): numb
   return found ? sum : null;
 }
 
-function ratio(numerator: number | null, denominator: number | null, multiplier = 1): number | null {
-  if (numerator === null || denominator === null || denominator === 0) return null;
-  return (numerator / denominator) * multiplier;
-}
-
 /** Ratios are always derived from aggregate totals; source row ratios are not averaged. */
 function calculateMetrics(rows: readonly HistoricalMetricRow[]): MetricValues {
   const metrics = emptyMetrics();
   for (const name of METRIC_NAMES) metrics[name] = sumMetric(rows, name);
-  metrics.ctr = ratio(metrics.clicks, metrics.impressions, 100);
-  metrics.cpc = ratio(metrics.spend, metrics.clicks);
-  metrics.cpm = ratio(metrics.spend, metrics.impressions, 1000);
-  metrics.cpl = ratio(metrics.spend, metrics.leads);
-  metrics.frequency = ratio(metrics.impressions, metrics.reach);
+  metrics.ctr = metricRatio(rows, "clicks", "impressions", metrics.clicks, metrics.impressions, 100);
+  metrics.cpc = metricRatio(rows, "spend", "clicks", metrics.spend, metrics.clicks);
+  metrics.cpm = metricRatio(rows, "spend", "impressions", metrics.spend, metrics.impressions, 1000);
+  metrics.cpl = metricRatio(rows, "spend", "leads", metrics.spend, metrics.leads);
+  metrics.frequency = metricRatio(rows, "impressions", "reach", metrics.impressions, metrics.reach);
   return metrics;
 }
 
@@ -195,6 +190,7 @@ export function aggregateRows(rows: readonly HistoricalMetricRow[]): AggregateMe
     currencyBreakdown,
     qualityCounts,
     limitations: [
+      ...ratioCoverageLimitations(rows),
       ...METRIC_NAMES.filter((name) => mixedActionTypes(rows, name))
         .map((name) => `${name}: N/D; las filas usan tipos de acción diferentes.`),
       ...(rows.length === 0 ? ["Sin filas disponibles para el período seleccionado."] : []),

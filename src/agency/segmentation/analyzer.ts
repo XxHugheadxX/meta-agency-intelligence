@@ -1,6 +1,6 @@
 import { assertReportingScope, type HistoricalMetricRow, type ReportingScope } from "../historical-data/index.js";
 import { buildSegmentationRecommendations } from "../recommendations/index.js";
-import { mixedActionTypes, uniqueReach } from "../analytics/metric-definitions.js";
+import { completeMetricCoverage, metricRatio, mixedActionTypes, ratioCoverageLimitations, uniqueReach } from "../analytics/metric-definitions.js";
 import type {
   SegmentPerformance,
   SegmentationAnalysis,
@@ -55,10 +55,6 @@ function resolveOptions(options: SegmentationOptions = {}): ResolvedOptions {
   return { dimensions: [...new Set(dimensions)], minimumRows: options.minimumRows ?? 3, minimumImpressions: options.minimumImpressions ?? 100, maxRecommendations: options.maxRecommendations ?? 30, thresholds };
 }
 
-function ratio(numerator: number | null, denominator: number | null, multiplier = 1): number | null {
-  return numerator === null || denominator === null || denominator === 0 ? null : numerator / denominator * multiplier;
-}
-
 function sum(rows: readonly HistoricalMetricRow[], name: "spend" | "reach" | "impressions" | "clicks" | "messages" | "leads" | "conversions"): number | null {
   if (mixedActionTypes(rows, name)) return null;
   let total = 0;
@@ -79,8 +75,11 @@ export function segmentationMetrics(rows: readonly HistoricalMetricRow[]): Segme
   return {
     spend, reach, impressions, clicks,
     messages: sum(rows, "messages"), leads, conversions: sum(rows, "conversions"),
-    ctr: ratio(clicks, impressions, 100), cpc: ratio(spend, clicks), cpl: ratio(spend, leads),
-    conversionRate: ratio(sum(rows, "conversions"), clicks, 100), frequency: ratio(impressions, reach),
+    ctr: metricRatio(rows, "clicks", "impressions", clicks, impressions, 100),
+    cpc: metricRatio(rows, "spend", "clicks", spend, clicks),
+    cpl: metricRatio(rows, "spend", "leads", spend, leads),
+    conversionRate: metricRatio(rows, "conversions", "clicks", sum(rows, "conversions"), clicks, 100),
+    frequency: metricRatio(rows, "impressions", "reach", impressions, reach),
   };
 }
 
@@ -118,7 +117,7 @@ function performance(
   options: ResolvedOptions,
 ): SegmentPerformance {
   const metrics = segmentationMetrics(rows);
-  const caveats: string[] = [];
+  const caveats: string[] = ratioCoverageLimitations(rows);
   if (rows.length < options.minimumRows) caveats.push(`Muestra pequeña: ${rows.length}/${options.minimumRows} filas mínimas.`);
   if ((metrics.impressions ?? 0) < options.minimumImpressions) caveats.push(`Impresiones insuficientes: ${metrics.impressions ?? 0}/${options.minimumImpressions} mínimas.`);
   if (metrics.spend === null) caveats.push("Sin gasto disponible; no se evalúan CPC ni CPL.");
@@ -133,7 +132,8 @@ function performance(
     metrics,
     sampleEligible:
       rows.length >= options.minimumRows &&
-      (metrics.impressions ?? 0) >= options.minimumImpressions,
+      (metrics.impressions ?? 0) >= options.minimumImpressions &&
+      completeMetricCoverage(rows, "spend", "impressions", "clicks", "leads"),
     caveats,
   };
 }
@@ -192,5 +192,5 @@ export function analyzeSegmentation(
   const baselines = Object.fromEntries([...baselineGroups.entries()].map(([currency, entries]) => [currency, segmentationMetrics(entries)]));
   const unavailableDimensions = options.dimensions.filter((dimension) => !available.has(dimension));
   const recommendations = buildSegmentationRecommendations(performances, baselines, options);
-  return { ruleVersion: "segmentation-v2", scope: { ...scope }, analyzedRows: scoped.owned.length, excludedRows: scoped.excluded, performances, baselines, unavailableDimensions, recommendations };
+  return { ruleVersion: "segmentation-v3", scope: { ...scope }, analyzedRows: scoped.owned.length, excludedRows: scoped.excluded, performances, baselines, unavailableDimensions, recommendations };
 }

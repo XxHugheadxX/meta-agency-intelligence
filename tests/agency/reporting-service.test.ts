@@ -2,12 +2,53 @@ import { describe, expect, it } from "vitest";
 import { InMemoryHistoricalDataRepository } from "../../src/agency/historical-data/index.js";
 import {
   AgencyReportingService,
+  aggregateRows,
   monthlyPeriod,
   weeklyPeriod,
 } from "../../src/agency/reporting/index.js";
 import { metricFixture, tenantA, tenantB } from "./fixtures.js";
+import { normalizeHistoricalMetric } from "../../src/agency/historical-data/index.js";
 
 describe("AgencyReportingService", () => {
+  it.each(["spend", "impressions", "clicks", "leads"] as const)(
+    "does not compute ratios using incomplete %s coverage",
+    (missing) => {
+      const first = normalizeHistoricalMetric(tenantA, metricFixture({
+        metrics: { spend: 100, impressions: 1000, clicks: 10, leads: 2 },
+      }), "first");
+      const second = normalizeHistoricalMetric(tenantA, metricFixture({
+        date: "2026-08-11",
+        metrics: { spend: 100, impressions: 1000, clicks: 10, leads: 2, [missing]: null },
+      }), "second");
+      const result = aggregateRows([first, second]);
+      const affected = {
+        spend: ["cpc", "cpm", "cpl"], impressions: ["ctr", "cpm"],
+        clicks: ["ctr", "cpc"], leads: ["cpl"],
+      } as const;
+      for (const name of affected[missing]) {
+        expect(result.metrics[name]).toBeNull();
+        expect(result.currencyBreakdown.BOB[name]).toBeNull();
+      }
+      expect(result.limitations?.some((note) => note.includes("cobertura incompleta"))).toBe(true);
+      expect(first.metrics.spend).toBe(100);
+    },
+  );
+
+  it("does not extrapolate ratios from a matched but incomplete subset", () => {
+    const rows = [
+      normalizeHistoricalMetric(tenantA, metricFixture({ metrics: { spend: 100, clicks: 10, leads: 2 } }), "first"),
+      normalizeHistoricalMetric(tenantA, metricFixture({ date: "2026-08-11", metrics: { spend: null, clicks: null, leads: null } }), "second"),
+    ];
+    expect(aggregateRows(rows).metrics).toMatchObject({ spend: 100, clicks: 10, leads: 2, cpc: null, cpl: null });
+  });
+
+  it("preserves measured zero numerators when source coverage is complete", () => {
+    const rows = [normalizeHistoricalMetric(tenantA, metricFixture({
+      metrics: { spend: 0, impressions: 1000, clicks: 10, leads: 2 },
+    }), "zero")];
+    expect(aggregateRows(rows).metrics).toMatchObject({ cpc: 0, cpl: 0, cpm: 0, ctr: 1 });
+  });
+
   it("returns deterministic UTC weeks and calendar months", () => {
     expect(weeklyPeriod("2026-08-12")).toEqual({ kind: "week", startDate: "2026-08-10", endDate: "2026-08-16" });
     expect(monthlyPeriod(2026, 2)).toEqual({ kind: "month", startDate: "2026-02-01", endDate: "2026-02-28" });
