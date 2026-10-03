@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { getFirestore } from "../store/firestore.js";
 import type { CircuitContext } from "./circuit-breaker.js";
+import { resolveMetaRequestsPerMinute } from "./request-quota.js";
 
 const WINDOW_MS = 60_000;
 
@@ -18,6 +19,7 @@ export class DistributedMetaGuard {
 
   async beforeRequest(context: CircuitContext): Promise<void> {
     if (!this.enabled) return;
+    const limit = resolveMetaRequestsPerMinute();
     const db = getFirestore();
     const id = docId(context);
     const circuit = await db.collection("meta_circuits").doc(id).get();
@@ -26,7 +28,6 @@ export class DistributedMetaGuard {
       throw new McpError(ErrorCode.InvalidRequest, "Meta circuit is open for this workspace asset");
     }
 
-    const limit = Math.max(1, Number(process.env.META_REQUESTS_PER_MINUTE ?? 120));
     const quotaRef = db.collection("meta_request_quotas").doc(id);
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(quotaRef);

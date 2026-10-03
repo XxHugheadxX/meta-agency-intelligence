@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger.js";
+import { resolveMetaRequestsPerMinute } from "../meta/request-quota.js";
 
 export interface SecurityConfig {
   metaAppConfigured: boolean;
@@ -70,6 +71,7 @@ export function resolveSecurityConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): SecurityConfig {
   const isProduction = env.NODE_ENV === "production";
+  resolveMetaRequestsPerMinute(env);
 
   if (env.OAUTH_APPROVAL_PIN) {
     logger.warn(
