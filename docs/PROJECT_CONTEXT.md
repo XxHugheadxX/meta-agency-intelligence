@@ -82,6 +82,12 @@ src/agency/
   de API y esquema; nunca se mezclan datasets para aumentar cobertura.
 - El alcance único de varias filas no se obtiene sumando personas. Alcance y
   frecuencia agregados permanecen N/D hasta incorporar totales únicos por período.
+- Los ratios requieren cobertura completa de numerador y denominador en todas
+  las filas seleccionadas; una cobertura parcial conserva totales con advertencia,
+  no produce ratios ni recomendaciones de optimización sobre esa muestra.
+- El consolidado orgánico usa la unión deduplicada de activos autorizados de las
+  conexiones del batch. Sin resolver de conexiones, el consolidado es paid-only;
+  nunca se amplía automáticamente al workspace completo.
 - Las acciones de mensajes/leads tienen una política canónica versionada; no se
   suman aliases solapados ni conversiones de objetivos diferentes.
 - Deploy y publicación son opt-in, separados de un push de código al repo privado.

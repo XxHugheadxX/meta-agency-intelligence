@@ -1,6 +1,6 @@
 # MVP: estado verificable y próximos pasos
 
-Actualizado: 2026-09-30. Rama de esta integración: `codex/mvp-data-readiness`.
+Actualizado: 2026-10-02. Rama de esta integración: `codex/mvp-data-readiness`.
 No se conectaron cuentas reales, no se desplegó, no se hizo merge.
 
 ## Cambios de esta integración
@@ -21,14 +21,22 @@ No se conectaron cuentas reales, no se desplegó, no se hizo merge.
   de mínimo privilegio. El contrato externo aún no fue ejecutado exitosamente.
 - Deploy manual opt-in y publicación de paquetes desactivada por defecto.
 - Docker separa dependencias de producción de las de desarrollo.
+- Ratios N/D si sus componentes no tienen cobertura completa; recomendaciones
+  `segmentation-v3` excluyen segmentos con datos esenciales incompletos.
+- Cuota de peticiones validada al arrancar y antes de consultar Firestore;
+  configuración inválida falla cerrado sin imprimir su valor.
+- Consolidado orgánico/content limitado a los activos autorizados del batch,
+  deduplicados y revalidados. Sin resolver de conexiones: paid-only.
 
 ## Validación local
 
-Suite normal sin acceso a Meta: 961 tests aprobados, 15 omitidos (976 total),
-83 archivos aprobados y 6 omitidos. Firestore local: 4 archivos, 10 tests
+Suite normal sin acceso a Meta: 996 tests aprobados, 16 omitidos (1012 total),
+84 archivos aprobados y 7 omitidos. Firestore local: 5 archivos, 11 tests
 adicionales ejecutados correctamente con fixtures; los 5 contratos Meta siguen
-sin ejecutarse. La primera repetición simultánea con builds tuvo 4 timeouts;
-pasaron aislados y luego pasó toda la suite con 2 workers, sin cambiar timeouts.
+sin ejecutarse. La prueba nueva verifica cuota atómica de dos guards concurrentes,
+aislamiento por cuenta, reset de ventana y circuito compartido contra el emulador.
+La suite completa pasó con 2 workers. Se añadieron 35 tests unitarios y una
+integración de cuota; no se ampliaron timeouts.
 Typecheck, lint y compilación pasaron invocando binaries instalados sin npm.
 Gitleaks 8.30.1: historial y directorio sin secretos detectados. Estos resultados
 no reemplazan un pentest, un audit actualizado de dependencias ni revisión de IAM.
@@ -44,9 +52,9 @@ Las suites omitidas no cuentan como aprobadas por la ejecución normal.
    Insights; actualmente sólo se analizan cuando hay fuentes explícitas válidas.
 3. Conciliar la política de acciones/objetivos con fixtures aceptados por negocio.
    Los umbrales de recomendaciones son heurísticos, no promesas de mejora.
-4. Cobertura orgánica del consolidado: actualmente workspace-scoped. Antes de
-   ofrecer batches parciales, restringirla a la unión de activos autorizados de
-   las conexiones del batch, no de otras conexiones del mismo workspace.
+4. Revisar bindings reales y revalidación del batch en staging. El filtro local
+   ya excluye activos ajenos al batch en ambos períodos, fallando cerrado si
+   cualquier conexión pierde autorización antes de la exportación.
 
 ## Migración y backfill: no borrar ni mezclar
 
@@ -75,10 +83,13 @@ tienen notas de calidad y no se presentan como totales conciliados.
 - [ ] Rotación/revocación/restore de credenciales y revisión de logs/URLs desplegados.
 - [ ] Regenerar Excel y aprobar layout, gráficos y fórmulas en Excel de escritorio.
 - [ ] Revisión humana del cambio de configuración OAuth/API antes de activos reales.
+- [ ] Revisión humana del cambio en `src/transport/security-config.ts` y de los
+      filtros de conexiones del consolidado antes de promover la rama.
 
 ## Orden para continuar
 
-Primero el contrato sandbox guiado en `META_ADS_API_CONTRACT.md`. En paralelo
+Tras revisar los fixes de cobertura/cuota/batch, ejecutar el contrato sandbox
+guiado en `META_ADS_API_CONTRACT.md`. En paralelo
 al trabajo manual de Meta, se puede implementar alcance por período y metadata
 de segmentación con fixtures, sin nuevas credenciales ni cuentas reales.
 Después cerrar staging y la aprobación de negocio. No habilitar

@@ -99,6 +99,15 @@ El funnel compara métricas de etapas, no identifica una cohorte de personas.
   el mismo conjunto de claves, atribución, API y esquema en ambos períodos.
 - Los agregados con cobertura parcial deben advertirlo explícitamente; no deben
   presentarse como totales conciliados ni usar valores ausentes como cero.
+- CPC, CPL, CPM, CTR y conversion rate requieren datos de ambos componentes en
+  todas las filas del dataset seleccionado. Incluso si ambos componentes faltan
+  en las mismas filas, no se extrapola el ratio del subconjunto al período entero.
+- `segmentation-v3` excluye recomendaciones si la muestra del segmento tiene
+  cobertura incompleta de gasto, impresiones, clics o leads. Cero observado sigue
+  siendo un dato válido; denominador cero o dato ausente produce N/D.
+- Batches parciales filtran tanto el período actual como el anterior a la unión
+  de activos orgánicos autorizados de sus conexiones; un fallo de autorización
+  impide generar el workbook y permite reintentar, sin fallback al workspace.
 
 ## Workbook Excel
 

@@ -1,6 +1,6 @@
 # Seguimiento de remediaciones de seguridad
 
-2026-09-30. Complementa la auditoría histórica del 2026-08-26; no la reemplaza
+2026-10-02. Complementa la auditoría histórica del 2026-08-26; no la reemplaza
 ni certifica producción. «Implementado» significa control en código y pruebas
 locales, no configuración efectiva de Meta/GitHub/GCP verificada.
 
@@ -14,8 +14,8 @@ locales, no configuración efectiva de Meta/GitHub/GCP verificada.
 | H-02 | Introspección backend y mínimo privilegio; `hardening.test.ts` prueba scopes, expiración y ausencia de secretos en URL. Contrato Ads exige ads_read y rechaza scopes extra. | Test App autorizada y contrato positivo con datos; revisar procedencia/activos en el flujo desplegado. |
 | H-03 | AES-256-GCM versionado, AAD y reencrypt; `tests/auth/crypto.test.ts` cubre rotación, backup ficticio y rechazo con otro workspace. | Ensayar restore/rotación/revocación en staging; comprobar política de claves. |
 | H-04 | Configuración/guías de identidad separada y deploy opt-in manual. | IAM/WIF efectivos, roles y aprobación del environment GitHub no fueron inspeccionados remotamente. Sigue abierto operativamente. |
-| H-05 | `src/meta/distributed-guard.ts` usa Firestore; leases/admisión/replay probados con fixtures y emulador. | Probar cuota/circuito entre réplicas, TTL, fallos de Firestore y carga real de staging. No equivale a control distribuido validado en producción. |
-| H-06 | Intersección de activos del token con bindings autoritativos; tests de activos, parents orgánicos, repo y worker. | Aprovisionar bindings válidos de prueba y comprobar control plane/RBAC desplegado. |
+| H-05 | `src/meta/distributed-guard.ts` usa Firestore; configuración de cuota validada como entero positivo seguro al arrancar y antes del contador; tests de rechazo y dos guards compartiendo cuota/circuito concurrentemente en emulador. | Probar cuota/circuito entre réplicas desplegadas, TTL, fallos de Firestore y carga real de staging. No equivale a control distribuido validado en producción. |
+| H-06 | Intersección de activos del token con bindings autoritativos; consolidado orgánico revalida cada conexión del batch y no usa fallback global; tests negativos de identidad, scopes, activos y replay. | Aprovisionar bindings válidos de prueba y comprobar control plane/RBAC desplegado. |
 | H-07 | Tools de leads crudos fuera de reporting; raw sanitizado, export scoped y pruebas de no filtración. | Revisión de payloads reales no productivos y política de retención/PII. |
 
 No declarar todos estos hallazgos «cerrados» sólo porque la suite pasa. La
@@ -40,10 +40,11 @@ aceptación de riesgos y conexión real requiere aprobación explícita del due�
 
 ## Evidencia de esta integración
 
-961 tests normales pasan; 15 omitidos no cuentan como aprobación en esa suite.
-Los 10 tests Firestore pasan por separado en emulador; los 5 contratos Meta
-no se ejecutaron. Hubo 4 timeouts con builds concurrentes: pasaron aislados y
-en la repetición completa con 2 workers, sin ampliar timeouts.
+996 tests normales pasan; 16 omitidos no cuentan como aprobación en esa suite.
+Los 11 tests Firestore pasan por separado en emulador; los 5 contratos Meta
+no se ejecutaron. Repetición completa con 2 workers, sin ampliar timeouts.
+La configuración de cuota y el filtrado de conexiones requieren revisión humana
+antes de promover la rama; los tests no sustituyen esa revisión.
 Lint/typecheck/build y Gitleaks local pasan. El detalle de datos,
 migraciones y gates del MVP está en `MVP_READINESS.md`. Sin deploy, merge ni
 cuentas reales en esta integración.

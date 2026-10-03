@@ -23,6 +23,9 @@ alcance no aditivo y fórmulas ausentes; integra recomendaciones al Excel.
 Ver `MVP_READINESS.md` y `SECURITY_REMEDIATION_STATUS.md` para distinguir código
 verificado de gates abiertos. Meta Test App no es el único pendiente: quedan
 alcance único por período, metadata de segmentación, conciliación y staging.
+La continuación del 2026-10-02 bloquea ratios con cobertura incompleta, añade
+validación fail-closed de cuotas y limita orgánico/content a los activos del
+batch. `segmentation-v3` no recomienda con datos esenciales incompletos.
 
 ## Fase 0 — Auditoría y hardening
 
@@ -82,8 +85,9 @@ El contrato y su gate de verificación están documentados en
 
 La rama `feature/firestore-ingestion-integration` añade persistencia
 transaccional, checkpoints monotónicos ante concurrencia y una suite contra
-Firestore Emulator. La suite ampliada de histórico, reporting, leases y flujo
-HTTP firmado pasa localmente: 4 archivos y 8 tests. El gate de producción no
+Firestore Emulator. La suite ampliada de histórico, reporting, leases, flujo
+HTTP firmado y cuota/circuito distribuido pasa localmente: 5 archivos y 11 tests.
+El gate de producción no
 queda cerrado hasta ensayar backup/restore, TTL, IAM y carga equivalente a veinte
 cuentas.
 
@@ -158,8 +162,10 @@ activos orgánicos asociados, evitando resultados parciales contaminados por
 filas ya ingeridas de otras cuentas del workspace. El cierre de batch para
 generar un único Excel consolidado ya está implementado; su recuperación
 operativa permanece pendiente de staging. El consolidado paid se limita a la
-membresía firmada; el orgánico aún cubre el workspace y debe restringirse antes
-de ofrecer batches parciales.
+membresía firmada; orgánico/content usan la unión deduplicada de activos
+autorizados de las conexiones del batch en ambos períodos. Un resolver ausente
+produce paid-only; un resolver que falla o devuelve otra identidad impide la
+exportación, libera el claim y permite un replay seguro.
 
 El fan-out firma un `batchId` determinista y la lista completa y ordenada de
 cuentas esperadas en cada job. El worker valida esa membresía fail-closed,
@@ -225,7 +231,8 @@ Orden recomendado:
 2. Incorporar alcance único por período y metadata real de segmentación con
    fixtures primero. No sumar reach diario ni inventar intereses/creative IDs.
 3. Revisar migración/backfill `meta-insights-v2` y aprobar la política de acciones.
-4. Restringir orgánico de batches parciales a sus conexiones autorizadas.
+4. Revisar en staging el filtro orgánico de batches parciales y la revocación
+   de una conexión antes de generar el consolidado.
 5. Ejecutar contratos orgánicos opt-in con activos no productivos.
 6. Aprovisionar staging: GCS privado/IAM/CMEK/TTL, OIDC, Pub/Sub y DLQ. Ensayar
    rotación/restore, recuperación y carga equivalente a veinte cuentas.

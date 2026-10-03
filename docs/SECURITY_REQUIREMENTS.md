@@ -115,6 +115,9 @@ escritura no prevista.
 ## Disponibilidad y abuso
 
 - Rate limits y circuit breakers deben compartirse entre instancias.
+- `META_REQUESTS_PER_MINUTE` debe ser un entero positivo seguro. Sólo la ausencia
+  de la variable usa el default 120; vacío, NaN, Infinity, fracciones o valores
+  fuera de rango se rechazan al arrancar y antes de acceder al contador.
 - Aplicar cuotas por principal, tenant, token y cuenta cuando corresponda.
 - Respetar `Retry-After`, aplicar jitter y detener reintentos frente a señales de
   abuso.
