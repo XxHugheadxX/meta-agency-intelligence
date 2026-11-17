@@ -46,14 +46,14 @@
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.5.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "jose": "^6.0.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
-    "zod": "^3.24.0"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "@modelcontextprotocol/sdk": {
