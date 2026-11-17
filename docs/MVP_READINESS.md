@@ -44,9 +44,15 @@ Las suites omitidas no cuentan como aprobadas por la ejecución normal.
 
 ## Pendientes de código/datos
 
-1. Leer y almacenar alcance único por período/nivel de cuenta o campaña desde
-   un endpoint autorizado. Mantenerlo separado del histórico diario; no fabricar
-   un total de agencia deduplicado entre cuentas. Hasta entonces: N/D.
+1. Alcance único por período a nivel de cuenta: implementado con fixtures en
+   `claude/period-reach`, desactivado por defecto
+   (`AGENCY_REPORTING_PERIOD_REACH_ENABLED`). Lee Insights de cuenta sin
+   `time_increment` para el período del reporte y el anterior, guarda el
+   resultado en `agency_period_reach` y falla cerrado si Meta devuelve otro
+   rango, otra cuenta o más de una fila. Pendiente: contrato contra la API real,
+   prueba con emulador de Firestore, medir el costo de dos lecturas extra por
+   job contra la cuota, y alcance por campaña. El total de agencia entre
+   cuentas sigue siendo N/D por diseño.
 2. Incorporar metadata de targeting/ad sets y creative IDs reales bajo bindings
    revisados. Intereses, audiencias y creatividades no se inventan a partir de Ads
    Insights; actualmente sólo se analizan cuando hay fuentes explícitas válidas.

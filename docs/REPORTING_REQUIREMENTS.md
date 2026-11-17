@@ -66,8 +66,13 @@ distintos para una métrica, esa métrica agregada también es N/D. Esta políti
 requiere conciliación con los objetivos reales antes del piloto.
 
 Alcance es un conteo no aditivo: no se suman personas entre días, anuncios o
-cuentas. Mientras falten snapshots únicos del período, los totales de alcance
-y frecuencia son N/D. Las filas fuente conservan el alcance informado por Meta.
+cuentas. Las filas fuente conservan el alcance informado por Meta. El alcance
+y la frecuencia del período sólo se informan cuando existe un snapshot de Meta
+a nivel de cuenta para el rango exacto (`AGENCY_REPORTING_PERIOD_REACH_ENABLED`,
+colección `agency_period_reach`, separada del histórico diario). Sin snapshot
+son N/D. Con varias cuentas el total sigue siendo N/D: el snapshot existe por
+cuenta y no se deduplican personas entre cuentas; cada cuenta lo muestra en su
+ranking. No hay snapshots por campaña, ad set ni anuncio.
 El funnel compara métricas de etapas, no identifica una cohorte de personas.
 
 ## Periodos y tiempo
