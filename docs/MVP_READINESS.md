@@ -53,9 +53,16 @@ Las suites omitidas no cuentan como aprobadas por la ejecución normal.
    prueba con emulador de Firestore, medir el costo de dos lecturas extra por
    job contra la cuota, y alcance por campaña. El total de agencia entre
    cuentas sigue siendo N/D por diseño.
-2. Incorporar metadata de targeting/ad sets y creative IDs reales bajo bindings
-   revisados. Intereses, audiencias y creatividades no se inventan a partir de Ads
-   Insights; actualmente sólo se analizan cuando hay fuentes explícitas válidas.
+2. Creative IDs reales: implementado con fixtures en `claude/ad-creative-ids`,
+   desactivado por defecto (`AGENCY_REPORTING_AD_CREATIVES_ENABLED`). En jobs
+   a nivel de anuncio consulta `/act_<id>/ads` filtrando por los anuncios de
+   cada página (lotes de 50) y guarda el creative ID que devuelve Meta. Un
+   anuncio que Meta no devuelve queda sin creative ID; nunca se usa el ad ID.
+   Pendiente: contrato real (el filtro por `id` se asume, no se observó),
+   costo en cuota y nombre del creativo. Sigue pendiente la metadata de
+   targeting/ad sets: intereses y audiencias no se inventan a partir de Ads
+   Insights, y repartir métricas de un ad set entre sus intereses las
+   duplicaría; requiere una política aprobada por negocio.
 3. Conciliar la política de acciones/objetivos con fixtures aceptados por negocio.
    Los umbrales de recomendaciones son heurísticos, no promesas de mejora.
 4. Revisar bindings reales y revalidación del batch en staging. El filtro local
