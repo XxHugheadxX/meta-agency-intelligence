@@ -1,6 +1,9 @@
 import type { Firestore } from "@google-cloud/firestore";
 import type { ReportArtifactStore } from "../delivery/index.js";
-import { FirestoreHistoricalDataRepository } from "../historical-data/index.js";
+import {
+  FirestoreHistoricalDataRepository,
+  type PeriodReachRepository,
+} from "../historical-data/index.js";
 import { FirestoreIngestionCheckpointRepository } from "../ingestion/index.js";
 import {
   MetaAgencyReportingRuntime,
@@ -14,6 +17,7 @@ export interface FirestoreAgencyReportingRuntimeDependencies {
   readonly checkpoints?: FirestoreIngestionCheckpointRepository;
   readonly clientFactory?: ReportingReadOnlyMetaClientFactory;
   readonly now?: () => string;
+  readonly periodReach?: PeriodReachRepository;
 }
 
 export function createFirestoreAgencyReportingRuntime(
@@ -25,5 +29,6 @@ export function createFirestoreAgencyReportingRuntime(
     dependencies.artifacts,
     dependencies.clientFactory,
     dependencies.now,
+    dependencies.periodReach,
   );
 }

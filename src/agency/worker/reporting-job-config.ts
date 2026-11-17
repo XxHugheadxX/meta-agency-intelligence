@@ -12,6 +12,7 @@ export type ReportingJobRuntimeConfig =
       readonly jobPublicKey: string;
       readonly reportBucket: string;
       readonly leaseTtlMs: number;
+      readonly periodReachEnabled: boolean;
     };
 
 function value(env: NodeJS.ProcessEnv, key: string): string {
@@ -67,6 +68,11 @@ export function resolveReportingJobRuntimeConfig(
     );
   }
 
+  const periodReach = value(env, "AGENCY_REPORTING_PERIOD_REACH_ENABLED").toLowerCase();
+  if (periodReach && periodReach !== "true" && periodReach !== "false") {
+    throw new Error("AGENCY_REPORTING_PERIOD_REACH_ENABLED must be true or false");
+  }
+
   return {
     enabled: true,
     audience,
@@ -75,5 +81,6 @@ export function resolveReportingJobRuntimeConfig(
     jobPublicKey,
     reportBucket,
     leaseTtlMs,
+    periodReachEnabled: periodReach === "true",
   };
 }

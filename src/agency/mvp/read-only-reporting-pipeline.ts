@@ -7,6 +7,8 @@ import {
   AgencyInsightsIngestionService,
   AgencyOrganicContentIngestionService,
   AgencyOrganicIngestionService,
+  AgencyPeriodReachIngestionService,
+  type PeriodReachIngestionResult,
   type OrganicContentIngestionRequest,
   type OrganicContentIngestionResult,
   type OrganicIngestionRequest,
@@ -16,6 +18,7 @@ import {
 } from "../ingestion/index.js";
 import {
   AgencyReportingService,
+  previousPeriod,
   type AgencyReport,
   type AgencyReportSourceAccountIds,
   type ReportPeriod,
@@ -34,6 +37,7 @@ export interface ReadOnlyReportingResult {
   readonly ingestion: InsightsIngestionResult;
   readonly organicIngestions: readonly OrganicIngestionResult[];
   readonly contentIngestions: readonly OrganicContentIngestionResult[];
+  readonly periodReach?: PeriodReachIngestionResult;
   readonly report: AgencyReport;
   readonly excel: AgencyExcelReport;
 }
@@ -45,6 +49,7 @@ export class AgencyReadOnlyReportingPipeline {
     private readonly excel = new AgencyExcelReportGenerator(),
     private readonly organicIngestion?: AgencyOrganicIngestionService,
     private readonly contentIngestion?: AgencyOrganicContentIngestionService,
+    private readonly periodReachIngestion?: AgencyPeriodReachIngestionService,
   ) {}
 
   async run(input: GenerateReadOnlyReportInput): Promise<ReadOnlyReportingResult> {
@@ -65,6 +70,17 @@ export class AgencyReadOnlyReportingPipeline {
       if (!this.contentIngestion) throw new Error("Organic content ingestion service is not configured");
       contentIngestions.push(await this.contentIngestion.run(request));
     }
+    const periodReach = this.periodReachIngestion
+      ? await this.periodReachIngestion.run({
+        scope: input.ingestion.scope,
+        account: input.ingestion.account,
+        periods: [input.period, previousPeriod(input.period)].map(
+          ({ startDate, endDate }) => ({ startDate, endDate }),
+        ),
+        apiVersion: input.ingestion.apiVersion,
+        runId: input.ingestion.runId,
+      })
+      : undefined;
     const report = await this.reporting.createUnifiedReport(input.ingestion.scope, {
       period: input.period,
       paidGranularity: input.ingestion.level,
@@ -76,6 +92,13 @@ export class AgencyReadOnlyReportingPipeline {
       },
     });
     const excel = this.excel.generate(report, input.excel);
-    return { ingestion, organicIngestions, contentIngestions, report, excel };
+    return {
+      ingestion,
+      organicIngestions,
+      contentIngestions,
+      ...(periodReach ? { periodReach } : {}),
+      report,
+      excel,
+    };
   }
 }
