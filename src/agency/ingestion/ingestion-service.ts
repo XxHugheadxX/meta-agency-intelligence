@@ -4,6 +4,7 @@ import {
   assertReportingScope,
   type HistoricalDataRepository,
 } from "../historical-data/index.js";
+import { resolveAdCreativeIds, type AdCreativeReader } from "./ad-creative-reader.js";
 import { normalizeMetaInsight } from "./normalizer.js";
 import type {
   IngestionCheckpointKey,
@@ -67,6 +68,7 @@ export class AgencyInsightsIngestionService {
     private readonly checkpoints: IngestionCheckpointRepository,
     private readonly assetPolicy: IngestionAssetPolicy,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly adCreatives?: AdCreativeReader,
   ) {}
 
   async run(request: InsightsIngestionRequest): Promise<InsightsIngestionResult> {
@@ -109,6 +111,9 @@ export class AgencyInsightsIngestionService {
     let pagesRead = 0;
     let rowsWritten = 0;
     const seenCursors = new Set<string>();
+    const creativeIds = request.level === "ad" && this.adCreatives
+      ? new Map<string, string | null>()
+      : undefined;
 
     while (true) {
       if (pagesRead >= maxPages) throw new Error("Meta insights pagination exceeded maxPages");
@@ -128,6 +133,14 @@ export class AgencyInsightsIngestionService {
       if (rowsWritten + page.data.length > maxRows) {
         throw new Error("Meta insights ingestion exceeded maxRows");
       }
+      if (creativeIds && this.adCreatives) {
+        await resolveAdCreativeIds(
+          this.adCreatives,
+          request.account,
+          page.data.flatMap((record) => typeof record.ad_id === "string" ? [record.ad_id] : []),
+          creativeIds,
+        );
+      }
       const inputs = page.data.map((record) => {
         if (record.date_start < effectiveStartDate || record.date_start > request.endDate) {
           throw new Error("Meta insight date_start falls outside the requested ingestion window");
@@ -141,6 +154,7 @@ export class AgencyInsightsIngestionService {
           extractedAt,
           runId,
           pageNumber,
+          creativeIds,
         });
       });
       await this.historicalData.upsertMany(request.scope, inputs);
