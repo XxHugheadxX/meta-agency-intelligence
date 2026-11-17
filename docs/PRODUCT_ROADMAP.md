@@ -228,8 +228,10 @@ Orden recomendado:
 
 1. Ejecutar el helper opt-in de `META_ADS_API_CONTRACT.md` con Test App, sólo
    `ads_read` y token nuevo. Una respuesta vacía no concilia métricas.
-2. Incorporar alcance único por período y metadata real de segmentación con
-   fixtures primero. No sumar reach diario ni inventar intereses/creative IDs.
+2. Validar en sandbox el alcance único por período a nivel de cuenta (ya
+   implementado con fixtures, opt-in) e incorporar metadata real de
+   segmentación con fixtures primero. No sumar reach diario ni inventar
+   intereses/creative IDs.
 3. Revisar migración/backfill `meta-insights-v2` y aprobar la política de acciones.
 4. Revisar en staging el filtro orgánico de batches parciales y la revocación
    de una conexión antes de generar el consolidado.

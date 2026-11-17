@@ -8,6 +8,9 @@ import {
   type MetricName,
   type MetricValues,
   type PaidHistoricalMetricLevel,
+  type PeriodReachKey,
+  type PeriodReachRepository,
+  type PeriodReachSnapshot,
   type ReportingScope,
 } from "../historical-data/index.js";
 import { analyzeSegmentation, type SegmentationAnalysis } from "../segmentation/index.js";
@@ -42,12 +45,28 @@ export interface RankingEntry {
   rowCount: number;
 }
 
+/** People reached by one ad account over the exact period, as deduplicated by Meta. */
+export interface AccountPeriodReach {
+  accountId: string;
+  accountName: string;
+  reach: number;
+  impressions: number | null;
+  frequency: number | null;
+  extractedAt: string;
+}
+
+export interface PeriodReachSummary {
+  current: readonly AccountPeriodReach[];
+  previous: readonly AccountPeriodReach[];
+}
+
 export interface AgencyReportDataset {
   granularity: HistoricalMetricLevel;
   current: AggregateMetrics;
   previous: AggregateMetrics;
   comparison: Readonly<Record<MetricName, MetricComparison>>;
   rawRows: readonly HistoricalMetricRow[];
+  periodReach?: PeriodReachSummary;
 }
 
 export interface AgencyReportSources {
@@ -70,6 +89,8 @@ export interface AgencyReport {
   /** Present for unified workbooks. Source datasets stay separate to prevent double counting. */
   sources?: AgencyReportSources;
   segmentation?: SegmentationAnalysis;
+  /** Per-account only. Accounts are never combined into an agency-wide reach. */
+  periodReach?: PeriodReachSummary;
 }
 
 export type ReportDatasetSelection = Pick<HistoricalMetricQuery,
@@ -278,10 +299,82 @@ export function monthlyPeriod(year: number, month: number): ReportPeriod {
   return { kind: "month", startDate, endDate: `${year}-${String(month).padStart(2, "0")}-${lastDay}` };
 }
 
+const ROW_SUM_REACH_NOTE = "Alcance único y frecuencia del período: N/D";
+
+function accountPeriodReach(snapshot: PeriodReachSnapshot): AccountPeriodReach {
+  return {
+    accountId: snapshot.accountId,
+    accountName: snapshot.accountName,
+    reach: snapshot.reach,
+    impressions: snapshot.impressions,
+    frequency: snapshot.impressions === null || snapshot.reach === 0
+      ? null
+      : snapshot.impressions / snapshot.reach,
+    extractedAt: snapshot.extractedAt,
+  };
+}
+
+async function loadPeriodReach(
+  periodReach: PeriodReachRepository,
+  scope: ReportingScope,
+  period: ReportPeriod,
+  rows: readonly HistoricalMetricRow[],
+): Promise<AccountPeriodReach[]> {
+  const keys = new Map<string, PeriodReachKey>();
+  for (const row of rows) {
+    if (row.apiVersion === null || !/^act_\d+$/.test(row.accountId)) continue;
+    keys.set(row.accountId, {
+      accountId: row.accountId,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      timezone: row.timezone,
+      apiVersion: row.apiVersion,
+    });
+  }
+  const snapshots = await periodReach.getMany(scope, [...keys.values()]);
+  return snapshots
+    .map(accountPeriodReach)
+    .sort((left, right) => left.accountId.localeCompare(right.accountId));
+}
+
+function withPeriodReach(
+  aggregate: AggregateMetrics,
+  rows: readonly HistoricalMetricRow[],
+  snapshots: readonly AccountPeriodReach[],
+): AggregateMetrics {
+  if (snapshots.length === 0) return aggregate;
+  const accountIds = new Set(rows.map((row) => row.accountId));
+  const limitations = (aggregate.limitations ?? [])
+    .filter((note) => !note.startsWith(ROW_SUM_REACH_NOTE));
+  if (accountIds.size !== 1 || snapshots.length !== 1 || !accountIds.has(snapshots[0].accountId)) {
+    return {
+      ...aggregate,
+      metrics: { ...aggregate.metrics, reach: null, frequency: null },
+      limitations: [
+        ...limitations.filter((note) => !note.startsWith("Frecuencia:")),
+        "Alcance único y frecuencia del total: N/D; el alcance del período existe por cuenta y no se deduplican personas entre cuentas.",
+      ],
+    };
+  }
+  return {
+    ...aggregate,
+    metrics: {
+      ...aggregate.metrics,
+      reach: snapshots[0].reach,
+      frequency: snapshots[0].frequency,
+    },
+    limitations: [
+      ...limitations.filter((note) => !note.startsWith("Frecuencia:")),
+      "Alcance único y frecuencia del período: snapshot de Meta a nivel de cuenta para el rango exacto; no se obtiene sumando filas.",
+    ],
+  };
+}
+
 function ranking(
   rows: readonly HistoricalMetricRow[],
   key: "account" | "agent",
   rankBy: MetricName,
+  periodReach: readonly AccountPeriodReach[] = [],
 ): RankingEntry[] {
   const groups = new Map<string, HistoricalMetricRow[]>();
   for (const row of rows) {
@@ -295,7 +388,13 @@ function ranking(
     .map(([id, group]) => ({
       id,
       name: key === "account" ? group[0].accountName : (group[0].agentName ?? id),
-      metrics: aggregateRows(group).metrics,
+      metrics: key === "account"
+        ? withPeriodReach(
+          aggregateRows(group),
+          group,
+          periodReach.filter((entry) => entry.accountId === id),
+        ).metrics
+        : aggregateRows(group).metrics,
       rowCount: group.length,
     }))
     .sort((left, right) => (right.metrics[rankBy] ?? -Infinity) - (left.metrics[rankBy] ?? -Infinity) || left.name.localeCompare(right.name));
@@ -309,6 +408,7 @@ async function reportDataset(
   granularity: HistoricalMetricLevel,
   accountIds?: readonly string[],
   selection: ReportDatasetSelection = {},
+  periodReach?: PeriodReachRepository,
 ): Promise<AgencyReportDataset> {
   const paid = ["account", "campaign", "ad_set", "ad"].includes(granularity);
   const query = { ...selection, ...(paid ? { breakdownKeys: selection.breakdownKeys ?? [] } : {}) };
@@ -335,19 +435,31 @@ async function reportDataset(
       identities.add(identity);
     }
   }
-  const current = aggregateRows(currentRows);
-  const previous = aggregateRows(previousRows);
+  const [currentReach, previousReach] = paid && periodReach
+    ? await Promise.all([
+      loadPeriodReach(periodReach, scope, period, currentRows),
+      loadPeriodReach(periodReach, scope, before, previousRows),
+    ])
+    : [[], []];
+  const current = withPeriodReach(aggregateRows(currentRows), currentRows, currentReach);
+  const previous = withPeriodReach(aggregateRows(previousRows), previousRows, previousReach);
   return {
     granularity,
     current,
     previous,
     comparison: compare(current.metrics, previous.metrics),
     rawRows: currentRows,
+    ...(currentReach.length > 0 || previousReach.length > 0
+      ? { periodReach: { current: currentReach, previous: previousReach } }
+      : {}),
   };
 }
 
 export class AgencyReportingService {
-  constructor(private readonly historicalData: HistoricalDataRepository) {}
+  constructor(
+    private readonly historicalData: HistoricalDataRepository,
+    private readonly periodReach?: PeriodReachRepository,
+  ) {}
 
   async createReport(scope: ReportingScope, input: CreateReportInput): Promise<AgencyReport> {
     const granularity = input.granularity ?? "ad";
@@ -360,6 +472,7 @@ export class AgencyReportingService {
       granularity,
       undefined,
       input.dataset,
+      this.periodReach,
     );
     const rankBy = input.rankBy ?? "leads";
     return {
@@ -370,9 +483,10 @@ export class AgencyReportingService {
       current: dataset.current,
       previous: dataset.previous,
       comparison: dataset.comparison,
-      accountRanking: ranking(dataset.rawRows, "account", rankBy),
+      accountRanking: ranking(dataset.rawRows, "account", rankBy, dataset.periodReach?.current),
       agentRanking: ranking(dataset.rawRows, "agent", rankBy),
       rawRows: dataset.rawRows,
+      ...(dataset.periodReach ? { periodReach: dataset.periodReach } : {}),
       ...(["account", "campaign", "ad_set", "ad"].includes(granularity) ? {
         segmentation: { ...analyzeSegmentation(scope, dataset.rawRows), period: { ...input.period } },
       } : {}),
@@ -402,6 +516,7 @@ export class AgencyReportingService {
         paidGranularity,
         sourceAccountIds?.paid,
         input.paidDataset,
+        this.periodReach,
       ),
       reportDataset(
         this.historicalData,
@@ -429,9 +544,10 @@ export class AgencyReportingService {
       current: paid.current,
       previous: paid.previous,
       comparison: paid.comparison,
-      accountRanking: ranking(paid.rawRows, "account", rankBy),
+      accountRanking: ranking(paid.rawRows, "account", rankBy, paid.periodReach?.current),
       agentRanking: ranking(paid.rawRows, "agent", rankBy),
       rawRows: paid.rawRows,
+      ...(paid.periodReach ? { periodReach: paid.periodReach } : {}),
       sources: { paid, organicAccount, content },
       segmentation: { ...analyzeSegmentation(scope, paid.rawRows), period: { ...input.period } },
     };

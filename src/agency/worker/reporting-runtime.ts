@@ -2,14 +2,19 @@ import { requestContext } from "../../auth/token-store.js";
 import { MetaApiClient } from "../../meta/client.js";
 import type { ReportArtifactStore } from "../delivery/index.js";
 import { AgencyExcelReportGenerator } from "../excel/index.js";
-import type { HistoricalDataRepository } from "../historical-data/index.js";
+import type {
+  HistoricalDataRepository,
+  PeriodReachRepository,
+} from "../historical-data/index.js";
 import {
   AgencyInsightsIngestionService,
   AgencyOrganicContentIngestionService,
   AgencyOrganicIngestionService,
+  AgencyPeriodReachIngestionService,
   InMemoryIngestionAssetPolicy,
   InMemoryOrganicAssetPolicy,
   MetaAdsInsightsReader,
+  MetaAdsPeriodReachReader,
   MetaPlatformContentReader,
   MetaOrganicInsightsReader,
   type IngestionCheckpointRepository,
@@ -35,6 +40,7 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
     private readonly clientFactory: ReportingReadOnlyMetaClientFactory = (apiVersion) =>
       new MetaApiClient({ apiVersion, mode: "read_only" }),
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly periodReach?: PeriodReachRepository,
   ) {}
 
   async run(connection: ResolvedIngestionConnection, job: ReportingJobPayload) {
@@ -53,7 +59,7 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
         policy,
         this.now,
       ),
-      new AgencyReportingService(this.historicalData),
+      new AgencyReportingService(this.historicalData, this.periodReach),
       new AgencyExcelReportGenerator(),
       new AgencyOrganicIngestionService(
         new MetaOrganicInsightsReader(client),
@@ -67,6 +73,14 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
         organicPolicy,
         this.now,
       ),
+      this.periodReach
+        ? new AgencyPeriodReachIngestionService(
+          new MetaAdsPeriodReachReader(client),
+          this.periodReach,
+          policy,
+          this.now,
+        )
+        : undefined,
     );
     const generatedAt = this.now();
 

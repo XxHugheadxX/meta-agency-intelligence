@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Firestore } from "@google-cloud/firestore";
 import type { ReportArtifactStore, StoredReportArtifact } from "../delivery/index.js";
 import { AgencyExcelReportGenerator } from "../excel/index.js";
-import { assertIsoDate, assertReportingScope, type HistoricalDataRepository, type ReportingScope } from "../historical-data/index.js";
+import { assertIsoDate, assertReportingScope, type HistoricalDataRepository, type PeriodReachRepository, type ReportingScope } from "../historical-data/index.js";
 import { AgencyReportingService } from "../reporting/index.js";
 import type { IngestionConnectionResolver, ReportingJobPayload } from "./types.js";
 import { assertReadOnlyConnection } from "./worker.js";
@@ -272,6 +272,7 @@ export class AgencyReportingBatchCoordinator implements ReportingBatchCompletion
     private readonly excel = new AgencyExcelReportGenerator(),
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly connections?: IngestionConnectionResolver,
+    private readonly periodReach?: PeriodReachRepository,
   ) {}
 
   private async organicAssetIds(scope: ReportingScope, accountIds: readonly string[]): Promise<string[]> {
@@ -303,7 +304,7 @@ export class AgencyReportingBatchCoordinator implements ReportingBatchCompletion
     try {
       const generatedAt = this.now();
       const organicAssetIds = await this.organicAssetIds(scope, job.batchAccountIds);
-      const report = await new AgencyReportingService(this.historical).createUnifiedReport(scope, {
+      const report = await new AgencyReportingService(this.historical, this.periodReach).createUnifiedReport(scope, {
         period: { kind: job.reportKind, startDate: job.reportStartDate, endDate: job.reportEndDate },
         paidGranularity: job.level,
         sourceAccountIds: {

@@ -21,7 +21,10 @@ import {
   AgencyReportingBatchCoordinator,
   FirestoreReportingBatchRepository,
 } from "./reporting-batch-coordinator.js";
-import { FirestoreHistoricalDataRepository } from "../historical-data/index.js";
+import {
+  FirestoreHistoricalDataRepository,
+  FirestorePeriodReachRepository,
+} from "../historical-data/index.js";
 import type { ReportingJobEndpointDependencies } from "./reporting-job-http-handler.js";
 import { AgencyReportingWorker } from "./reporting-worker.js";
 import { ReportingConcurrencyGate } from "../scheduler/index.js";
@@ -60,11 +63,14 @@ export function createReportingJobEndpointDependencies(
     dependencies.serverUrl,
   );
   const historicalData = new FirestoreHistoricalDataRepository(db);
+  const periodReach = config.periodReachEnabled
+    ? new FirestorePeriodReachRepository(db)
+    : undefined;
   const worker = new AgencyReportingWorker(
     identities,
     new PublicKeyIngestionJobVerifier(config.jobPublicKey),
     connections,
-    createFirestoreAgencyReportingRuntime({ db, artifacts, historicalData }),
+    createFirestoreAgencyReportingRuntime({ db, artifacts, historicalData, periodReach }),
     new FirestoreIngestionAuditSink(db),
     undefined,
     {
@@ -79,6 +85,7 @@ export function createReportingJobEndpointDependencies(
       undefined,
       undefined,
       connections,
+      periodReach,
     ),
   );
   return { worker, identities };
