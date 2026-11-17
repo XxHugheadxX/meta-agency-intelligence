@@ -31,6 +31,8 @@ export interface NormalizeInsightContext {
   readonly extractedAt: string;
   readonly runId: string;
   readonly pageNumber: number;
+  /** Ad ID to its real creative ID; null when Meta did not return the ad. */
+  readonly creativeIds?: ReadonlyMap<string, string | null>;
 }
 
 function optionalMetric(value: unknown, field: string): number | null {
@@ -145,6 +147,9 @@ export function normalizeMetaInsight(
         ? record.account_name
         : context.account.accountName,
     ...dimensions(record, context.level),
+    ...(context.level === "ad" && context.creativeIds
+      ? { creativeId: context.creativeIds.get(String(record.ad_id)) ?? null }
+      : {}),
     agentId: context.account.agentId ?? null,
     agentName: context.account.agentName ?? null,
     date: record.date_start,

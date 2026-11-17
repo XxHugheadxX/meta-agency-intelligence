@@ -70,7 +70,13 @@ export function createReportingJobEndpointDependencies(
     identities,
     new PublicKeyIngestionJobVerifier(config.jobPublicKey),
     connections,
-    createFirestoreAgencyReportingRuntime({ db, artifacts, historicalData, periodReach }),
+    createFirestoreAgencyReportingRuntime({
+      db,
+      artifacts,
+      historicalData,
+      periodReach,
+      readAdCreatives: config.adCreativesEnabled,
+    }),
     new FirestoreIngestionAuditSink(db),
     undefined,
     {

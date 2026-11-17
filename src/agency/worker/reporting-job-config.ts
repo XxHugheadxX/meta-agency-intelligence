@@ -13,6 +13,7 @@ export type ReportingJobRuntimeConfig =
       readonly reportBucket: string;
       readonly leaseTtlMs: number;
       readonly periodReachEnabled: boolean;
+      readonly adCreativesEnabled: boolean;
     };
 
 function value(env: NodeJS.ProcessEnv, key: string): string {
@@ -73,6 +74,11 @@ export function resolveReportingJobRuntimeConfig(
     throw new Error("AGENCY_REPORTING_PERIOD_REACH_ENABLED must be true or false");
   }
 
+  const adCreatives = value(env, "AGENCY_REPORTING_AD_CREATIVES_ENABLED").toLowerCase();
+  if (adCreatives && adCreatives !== "true" && adCreatives !== "false") {
+    throw new Error("AGENCY_REPORTING_AD_CREATIVES_ENABLED must be true or false");
+  }
+
   return {
     enabled: true,
     audience,
@@ -82,5 +88,6 @@ export function resolveReportingJobRuntimeConfig(
     reportBucket,
     leaseTtlMs,
     periodReachEnabled: periodReach === "true",
+    adCreativesEnabled: adCreatives === "true",
   };
 }

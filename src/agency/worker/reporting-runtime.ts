@@ -13,6 +13,7 @@ import {
   AgencyPeriodReachIngestionService,
   InMemoryIngestionAssetPolicy,
   InMemoryOrganicAssetPolicy,
+  MetaAdCreativeReader,
   MetaAdsInsightsReader,
   MetaAdsPeriodReachReader,
   MetaPlatformContentReader,
@@ -41,6 +42,7 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
       new MetaApiClient({ apiVersion, mode: "read_only" }),
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly periodReach?: PeriodReachRepository,
+    private readonly readAdCreatives = false,
   ) {}
 
   async run(connection: ResolvedIngestionConnection, job: ReportingJobPayload) {
@@ -58,6 +60,7 @@ export class MetaAgencyReportingRuntime implements ReportingRuntime {
         this.checkpoints,
         policy,
         this.now,
+        this.readAdCreatives ? new MetaAdCreativeReader(client) : undefined,
       ),
       new AgencyReportingService(this.historicalData, this.periodReach),
       new AgencyExcelReportGenerator(),

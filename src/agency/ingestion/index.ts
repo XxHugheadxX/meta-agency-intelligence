@@ -3,6 +3,7 @@ export * from "./asset-policy.js";
 export * from "./checkpoint-repository.js";
 export * from "./meta-insights-reader.js";
 export * from "./normalizer.js";
+export * from "./ad-creative-reader.js";
 export * from "./ingestion-service.js";
 export * from "./period-reach-ingestion-service.js";
 export * from "./organic-types.js";

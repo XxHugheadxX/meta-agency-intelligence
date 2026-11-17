@@ -18,6 +18,7 @@ export interface FirestoreAgencyReportingRuntimeDependencies {
   readonly clientFactory?: ReportingReadOnlyMetaClientFactory;
   readonly now?: () => string;
   readonly periodReach?: PeriodReachRepository;
+  readonly readAdCreatives?: boolean;
 }
 
 export function createFirestoreAgencyReportingRuntime(
@@ -30,5 +31,6 @@ export function createFirestoreAgencyReportingRuntime(
     dependencies.clientFactory,
     dependencies.now,
     dependencies.periodReach,
+    dependencies.readAdCreatives,
   );
 }
