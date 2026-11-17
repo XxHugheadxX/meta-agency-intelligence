@@ -90,7 +90,8 @@ const METRIC_LABELS: readonly [MetricName, string, number][] = [
 
 const REDACTED_KEY = /(?:token|secret|authorization|password|api[_-]?key|private[_-]?key|credential|cookie|session)/i;
 const REDACTED_VALUE = /(?:\bBearer\s+[A-Za-z0-9._~-]+|\bEAA[A-Za-z0-9_-]{12,}|(?:access_token|refresh_token|id_token|client_secret)=[^&\s]+)/i;
-const FORMULA_PREFIX = /^[=+\-@]/;
+// Tab and line breaks count too: a CSV re-export strips them and exposes the formula.
+const FORMULA_PREFIX = /^[=+\-@\t\r\n]/;
 
 function escapeXml(value: string): string {
   return value

@@ -142,6 +142,25 @@ describe("AgencyExcelReportGenerator", () => {
     expect(unzipStored(result.bytes).get("xl/worksheets/sheet2.xml")).toContain("&apos;Resumen Ejecutivo&apos;!B5");
   });
 
+  it.each(["=", "+", "-", "@", "\t=", "\r=", "\n="])(
+    "neutralizes a name that starts with %j so no spreadsheet evaluates it",
+    async (prefix) => {
+      const payload = `${prefix}HYPERLINK("https://example.test","x")`;
+      const repository = new InMemoryHistoricalDataRepository();
+      await repository.upsert(tenantA, metricFixture({ adName: payload, campaignName: payload }));
+      const report = await new AgencyReportingService(repository).createWeeklyReport(tenantA, "2026-08-12");
+      const sheets = [...unzipStored(new AgencyExcelReportGenerator().generate(report).bytes)]
+        .filter(([name]) => name.startsWith("xl/worksheets/"))
+        .map(([, xml]) => xml)
+        .join("");
+      const cells = [...sheets.matchAll(/<t xml:space="preserve">([^<]*HYPERLINK[^<]*)<\/t>/g)]
+        .map((match) => match[1]);
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells.every((cell) => cell.startsWith("&apos;"))).toBe(true);
+      expect(sheets).not.toMatch(/<f>[^<]*HYPERLINK/);
+    },
+  );
+
   it("rejects unsafe output filenames instead of producing a path-like artifact", async () => {
     const report = await sampleReport();
     expect(() => new AgencyExcelReportGenerator().generate(report, { filename: "../report.xlsm" })).toThrow("safe .xlsx");
