@@ -30,6 +30,9 @@
   modo.
 - Los schedulers futuros deben usar identidad de workload y jobs firmados con
   tenant inmutable, no credenciales humanas compartidas.
+- La identidad Google OIDC del scheduler debe validar `RS256`, issuer, audience,
+  email verificado y service account allowlisted; el rol `scheduler` no puede
+  derivarse de claims arbitrarios enviados por el cliente.
 
 ## Tokens Meta
 
@@ -96,6 +99,9 @@ escritura no prevista.
 - CORS no autoriza headers de credenciales Meta.
 - Los endpoints protegidos deben tener tests de ausencia de auth, auth inválida,
   tenant ausente y origen sibling.
+- La descarga de reportes requiere Bearer auth y tenant/workspace derivados de
+  claims verificados. Un ID inválido, expirado o perteneciente a otro tenant
+  devuelve el mismo `404`; el bucket y su object key nunca se exponen.
 
 ## Logs y errores
 
@@ -109,6 +115,9 @@ escritura no prevista.
 ## Disponibilidad y abuso
 
 - Rate limits y circuit breakers deben compartirse entre instancias.
+- `META_REQUESTS_PER_MINUTE` debe ser un entero positivo seguro. Sólo la ausencia
+  de la variable usa el default 120; vacío, NaN, Infinity, fracciones o valores
+  fuera de rango se rechazan al arrancar y antes de acceder al contador.
 - Aplicar cuotas por principal, tenant, token y cuenta cuando corresponda.
 - Respetar `Retry-After`, aplicar jitter y detener reintentos frente a señales de
   abuso.

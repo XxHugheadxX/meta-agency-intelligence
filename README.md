@@ -752,7 +752,11 @@ You're running without Firestore. Set `FIRESTORE_PROJECT_ID` (or run on GCP with
 Long-lived user tokens auto-refresh as long as the user signs in within their 60-day window. If the token has fully expired, the next MCP call returns a 401 with a "re-authenticate via /authorize" hint. System User tokens never expire.
 
 **How do I rotate `TOKEN_ENCRYPTION_KEY`?**
-Decrypt all tokens with the current key, set the new key, re-encrypt, deploy. The procedure is short but **don't deploy a new key without re-encrypting first** — every existing token will become unreadable. Plan a maintenance window.
+Use a dual-read/single-write window: deploy the new key and version while the
+old version remains in `TOKEN_ENCRYPTION_OLD_KEYS`, then re-encrypt each
+tenant-bound document transactionally and retire the old key only after the
+inventory and restore checks pass. Never log or export plaintext. Follow
+[docs/TOKEN_KEY_ROTATION_RUNBOOK.md](docs/TOKEN_KEY_ROTATION_RUNBOOK.md).
 
 **Can I run without Firestore?**
 For local dev / single-user, yes — set `META_ACCESS_TOKEN` and use `npm run dev:stdio`. For multi-tenant HTTP you really want Firestore (or any persistent store you wire in); the in-memory fallback exists only so dev environments don't die.

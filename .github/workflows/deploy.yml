@@ -1,8 +1,7 @@
 name: Deploy to Cloud Run
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 env:
   SERVICE_NAME: meta-ads-mcp
@@ -76,6 +75,7 @@ jobs:
           GITLEAKS_VERSION: ${{ env.GITLEAKS_VERSION }}
 
   deploy:
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_PRODUCTION_DEPLOY == 'true'
     needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -265,7 +265,7 @@ jobs:
             --max-instances=10
             --port=3000
           env_vars: |
-            META_API_VERSION=v22.0
+            META_API_VERSION=${{ vars.META_API_VERSION }}
             MCP_MODE=read_only
             ALLOW_LEAD_PII=false
             DISTRIBUTED_RATE_LIMIT_BACKEND=firestore
@@ -318,6 +318,7 @@ jobs:
           fi
 
   release:
+    if: vars.ENABLE_PACKAGE_PUBLICATION == 'true'
     # Auto-publish a GitHub Release when package.json version is bumped on main.
     # Idempotent: skips silently if a release for the current version already
     # exists, so non-version-bumping pushes are no-ops.

@@ -6,6 +6,11 @@
 **Alcance objetivo:** plataforma de reporting y análisis read-only para una agencia inmobiliaria con aproximadamente 20 cuentas/perfiles de Meta  
 **Estado de conexión:** no se conectaron cuentas ni credenciales reales
 
+> Auditoría histórica del commit indicado, no certificación del estado actual.
+> El seguimiento de las remediaciones y sus gates operativos se mantiene en
+> [docs/SECURITY_REMEDIATION_STATUS.md](docs/SECURITY_REMEDIATION_STATUS.md).
+> La matriz original se conserva para no perder la evidencia inicial.
+
 ## Resumen ejecutivo
 
 El repositorio **no debe conectarse todavía a cuentas reales**. La base contiene controles valiosos —PKCE S256 para OAuth MCP, códigos de autorización de un solo uso, cifrado AES-256-GCM, validación de redirects, protección SSRF para descargas, escaping HTML, acciones de CI fijadas por SHA y escaneo Gitleaks limpio—, pero el modo read-only solicitado no existe como frontera de seguridad.

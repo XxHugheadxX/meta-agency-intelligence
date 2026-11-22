@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { isApiKeyConfigured, validateApiKey } from "../../src/auth/api-key.js";
 
 describe("API Key Authentication", () => {

@@ -6,9 +6,32 @@ Una fase no autoriza conectar cuentas reales por sí sola. Cada fase termina con
 tests, revisión de seguridad y criterios de salida verificables. Los cambios se
 trabajan en ramas y no se fusionan automáticamente.
 
+## Integración MVP read-only
+
+**Estado:** `mvp/read-only-reporting` conecta la ingesta sintética de Ads
+Insights con histórico, reporting y el generador XLSX profesional. La prueba
+end-to-end valida KPIs, aislamiento, formato ZIP/OOXML, diez hojas esperadas y
+ausencia de tokens en el workbook. El worker seguro ya puede ejecutar esta
+cadena y registrar un artefacto privado con metadata tenant-scoped, sin exponer
+bytes, object keys ni URLs. Las cuatro suites Firestore pasan contra el emulador
+local con datos sintéticos. Falta ejecutar el contrato contra una Meta Test App
+antes de usar activos reales.
+
+La integración `codex/mvp-data-readiness` corrige período anterior calendario,
+backfill inicial de ambos períodos, selección de snapshots, aliases de acciones,
+alcance no aditivo y fórmulas ausentes; integra recomendaciones al Excel.
+Ver `MVP_READINESS.md` y `SECURITY_REMEDIATION_STATUS.md` para distinguir código
+verificado de gates abiertos. Meta Test App no es el único pendiente: quedan
+alcance único por período, metadata de segmentación, conciliación y staging.
+La continuación del 2026-10-02 bloquea ratios con cobertura incompleta, añade
+validación fail-closed de cuotas y limita orgánico/content a los activos del
+batch. `segmentation-v3` no recomienda con datos esenciales incompletos.
+
 ## Fase 0 — Auditoría y hardening
 
-**Estado:** en progreso avanzado en `security/hardening-v1`.
+**Estado de código:** hardening Critical/High implementado y testeado en
+`security/hardening-v1`. Los gates operativos y la revisión humana siguen
+pendientes.
 
 Entregables:
 
@@ -26,11 +49,15 @@ Entregables:
 Salida pendiente:
 
 - Revisar el diff humano completo.
-- Probar Firestore emulator y rotación/restore.
+- Ensayar rotación y restore con documentos y claves ficticios.
 - Resolver o aceptar explícitamente riesgos residuales.
 - No conectar cuentas reales.
 
 ## Fase 1 — Fundaciones de agencia
+
+**Estado:** primera versión implementada y testeada bajo `src/agency/`; faltan
+la revisión humana, políticas de retención desplegadas y contratos del control
+plane operativo.
 
 - Crear `src/agency/` y contratos compartidos.
 - Definir `Tenant`, `Workspace`, `MetaConnection`, `AssetBinding` y roles.
@@ -41,6 +68,28 @@ Salida pendiente:
 **Gate:** aislamiento probado a nivel de repositorio, servicio y exportación.
 
 ## Fase 2 — Ingesta e histórico
+
+**Estado:** en progreso en `feature/meta-readonly-ingestion`. Ads Insights tiene
+lector GET-only, paginación acotada, normalización diaria, raw sanitizado,
+checkpoints monotónicos, replay idempotente y aislamiento probado con datos
+sintéticos. La rama MVP incorpora lectores account-level GET-only para Page
+Insights e Instagram Insights, normalización diaria, raw sanitizado y
+aislamiento tenant-scoped con fixtures sintéticos. La ingesta orgánica por
+contenido de Instagram y publicaciones de Facebook añade discovery paginado,
+snapshots lifetime y nivel histórico separado. Facebook usa las métricas
+modernas `views` y `total_interactions`, sin convertir views en alcance o
+impresiones. Los bindings de producción y contract tests con una Meta Test App
+siguen pendientes.
+El contrato y su gate de verificación están documentados en
+`META_ORGANIC_API_CONTRACT.md`.
+
+La rama `feature/firestore-ingestion-integration` añade persistencia
+transaccional, checkpoints monotónicos ante concurrencia y una suite contra
+Firestore Emulator. La suite ampliada de histórico, reporting, leases, flujo
+HTTP firmado y cuota/circuito distribuido pasa localmente: 5 archivos y 11 tests.
+El gate de producción no
+queda cerrado hasta ensayar backup/restore, TTL, IAM y carga equivalente a veinte
+cuentas.
 
 - Clientes read-only para Ads, Facebook e Instagram.
 - Jobs idempotentes, watermarks, paginación y backfill.
@@ -53,6 +102,10 @@ sintéticos/sandbox, sin duplicados ni cruces de tenant.
 
 ## Fase 3 — Analytics
 
+**Estado:** comparaciones por periodo, agregación de KPIs y segmentación inicial
+implementadas; faltan conciliación contra Meta, anomalías/fatiga y calibración
+con datasets aceptados por negocio.
+
 - Motor de KPIs con definiciones versionadas.
 - Comparaciones semanal, mensual y periodo anterior.
 - Tendencias, anomalías y detección de fatiga.
@@ -64,6 +117,16 @@ ausentes.
 
 ## Fase 4 — Reporting y Excel
 
+**Estado:** workbook semanal/mensual editable y sin macros implementado y
+validado automáticamente con fixtures. Las tablas operativas incluyen filtros
+automáticos, columnas identificadoras congeladas y encabezados de alto
+contraste. El workbook sintético reproducible ya pasó importación, escaneo de
+fórmulas y revisión renderizada de sus diez hojas; ver `EXCEL_VISUAL_QA.md`.
+La composición unificada conserva Ads,
+orgánico account-level y content-level en datasets separados para evitar doble
+conteo. Queda pendiente aprobación manual de negocio y smoke test final en
+Microsoft Excel de escritorio.
+
 - Implementar `reporting/` y `excel/` separados del pipeline de ingesta.
 - Workbook semanal y mensual con hojas, tablas, fórmulas y gráficos definidos.
 - Validación visual automatizada y manual.
@@ -74,6 +137,45 @@ negocio usando fixtures.
 
 ## Fase 5 — Scheduler y operación
 
+**Estado:** orquestador inicial del worker implementado en
+`feature/agency-ingestion-worker`, con identidad y firma como dependencias
+obligatorias, resolución tenant-safe, scopes read-only y auditoría minimizada.
+La rama MVP añade el worker de reporting, metadata Firestore aislada, adaptador
+GCS, endpoint de descarga autenticado tenant-scoped y verificador Google OIDC
+del scheduler ligado a issuer, audience y service account. El endpoint interno
+de jobs está implementado como una dependencia opt-in, autenticada antes del
+parseo y con respuesta mínima. El bootstrap seguro ya compone el worker con
+repositorios Firestore del control plane y leases con fencing y replay
+idempotente. La admisión local ya limita concurrencia global/por workspace y
+devuelve `Retry-After`; también existen políticas fail-closed de retry y records
+dead-letter sin payload, firma o autorización. Faltan aprovisionar y validar
+bucket/IAM/CMEK e identidades reales. El código ya incluye trigger OIDC,
+fan-out Firestore, firma KMS, publicación Pub/Sub y recepción push; falta crear
+la cola durable y DLQ en staging y ensayar la reanudación operativa. El runtime
+del job ya compone Ads, orgánico account-level y contenido de Facebook e
+Instagram antes del Excel. Cada activo orgánico requiere un binding explícito a
+la cuenta Ads y la intersección con `allowedAssetIds`; así se evita repetir todos
+los activos en cada uno de los aproximadamente 20 jobs.
+
+El artefacto producido por cada job queda limitado a esa cuenta Ads y a sus
+activos orgánicos asociados, evitando resultados parciales contaminados por
+filas ya ingeridas de otras cuentas del workspace. El cierre de batch para
+generar un único Excel consolidado ya está implementado; su recuperación
+operativa permanece pendiente de staging. El consolidado paid se limita a la
+membresía firmada; orgánico/content usan la unión deduplicada de activos
+autorizados de las conexiones del batch en ambos períodos. Un resolver ausente
+produce paid-only; un resolver que falla o devuelve otra identidad impide la
+exportación, libera el claim y permite un replay seguro.
+
+El fan-out firma un `batchId` determinista y la lista completa y ordenada de
+cuentas esperadas en cada job. El worker valida esa membresía fail-closed,
+persiste completaciones tenant-scoped y la última cuenta genera el Excel
+consolidado mediante un claim con fencing, expiración y replay idempotente.
+El estado y la descarga del consolidado ya se exponen mediante endpoints MCP
+autenticados y tenant-scoped, sin revelar coordenadas de almacenamiento.
+El frontend puede descubrir hasta 50 batches recientes mediante un listado
+protegido, sin necesitar conocer previamente sus IDs.
+
 - Scheduler con identidad de workload y tenant firmado.
 - Cola, límites de concurrencia, jitter, dead-letter queue y reanudación.
 - Observabilidad por job/tenant sin PII.
@@ -81,7 +183,15 @@ negocio usando fixtures.
 
 **Gate:** prueba de carga equivalente a 20 cuentas y recuperación ensayada.
 
+La simulación local de 20 cuentas ya cubre concurrencia por workspace,
+backpressure, fallo transitorio, liberación de lease y replay idempotente; ver
+`TWENTY_ACCOUNT_LOAD_TEST.md`. El gate permanece abierto hasta repetirla en
+staging con Pub/Sub, Firestore, GCS y métricas de recursos reales.
+
 ## Fase 6 — Recomendaciones
+
+**Estado:** reglas read-only explicables implementadas; falta evaluación offline
+y calibración de umbrales con datos sintéticos o anonimizados representativos.
 
 - Reglas explicables y versionadas.
 - Priorización por impacto, confianza y volumen de evidencia.
@@ -116,10 +226,20 @@ Orden recomendado:
 
 ## Próximas tareas recomendadas
 
-1. Revisar y cerrar la rama de hardening sin merge automático.
-2. Crear tests de integración con Firestore emulator.
-3. Ensayar rotación y restore de claves con documentos ficticios.
-4. Diseñar el modelo de datos tenant/workspace/asset/history.
-5. Crear fixtures sintéticos y contratos de métricas.
-6. Implementar el primer backfill read-only antes de construir Excel.
+1. Ejecutar el helper opt-in de `META_ADS_API_CONTRACT.md` con Test App, sólo
+   `ads_read` y token nuevo. Una respuesta vacía no concilia métricas.
+2. Validar en sandbox el alcance único por período a nivel de cuenta (ya
+   implementado con fixtures, opt-in) e incorporar metadata real de
+   segmentación con fixtures primero. No sumar reach diario ni inventar
+   intereses/creative IDs.
+3. Revisar migración/backfill `meta-insights-v2` y aprobar la política de acciones.
+4. Revisar en staging el filtro orgánico de batches parciales y la revocación
+   de una conexión antes de generar el consolidado.
+5. Ejecutar contratos orgánicos opt-in con activos no productivos.
+6. Aprovisionar staging: GCS privado/IAM/CMEK/TTL, OIDC, Pub/Sub y DLQ. Ensayar
+   rotación/restore, recuperación y carga equivalente a veinte cuentas.
+7. Regenerar/aprobar el Excel actualizado y revisar seguridad/configuración
+   OAuth. Integrar ramas sólo tras revisión; sin merge automático.
 
+Deploy y publicación permanecen desactivados por defecto. Push al repo privado
+no autoriza despliegue ni publicación de paquetes heredados del upstream.

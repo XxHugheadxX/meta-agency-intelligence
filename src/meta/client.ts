@@ -16,8 +16,8 @@ import {
 import type { MetaApiResponse } from "./types/common.js";
 import { collectAllPages } from "./paginator.js";
 import { DistributedMetaGuard } from "./distributed-guard.js";
+import { resolveMetaApiVersion } from "./api-version.js";
 
-const DEFAULT_API_VERSION = "v25.0";
 const DEFAULT_BASE_URL = "https://graph.facebook.com";
 const DEFAULT_TIMEOUT = 30000;
 const MAX_RETRIES = 3;
@@ -67,8 +67,7 @@ export class MetaApiClient {
   private readonly tenantObjectCache = new Map<string, string>();
 
   constructor(config?: MetaApiClientConfig) {
-    this.apiVersion =
-      config?.apiVersion ?? process.env.META_API_VERSION ?? DEFAULT_API_VERSION;
+    this.apiVersion = resolveMetaApiVersion(config?.apiVersion);
     this.baseUrl = config?.baseUrl ?? DEFAULT_BASE_URL;
     this.timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = config?.maxRetries ?? MAX_RETRIES;
@@ -365,6 +364,8 @@ export class MetaApiClient {
 
     if (/^act_\d+$/.test(first)) {
       this.assertAccountAllowed(first, tenant);
+    } else if (/^\d{1,32}_\d{1,32}$/.test(first)) {
+      this.assertPagePostAllowed(first, tenant);
     } else if (/^\d+$/.test(first)) {
       await this.assertObjectAllowed(first, tenant, token, tokenHash);
     }
@@ -387,6 +388,16 @@ export class MetaApiClient {
     }
   }
 
+  private assertPagePostAllowed(postId: string, tenant: TenantContext): void {
+    const pageId = postId.split("_", 1)[0];
+    if (
+      !tenant.allowedAssetIds.has(pageId) ||
+      !tenant.allowedPageIds.has(pageId)
+    ) {
+      throw new Error("Requested Meta object is not assigned to this workspace");
+    }
+  }
+
   private async assertObjectAllowed(
     objectId: string,
     tenant: TenantContext,
@@ -396,34 +407,52 @@ export class MetaApiClient {
     if (tenant.allowedAssetIds.has(objectId)) return;
 
     const cacheKey = `${tenant.workspaceId}:${objectId}`;
-    let parentAccount = this.tenantObjectCache.get(cacheKey);
-    if (!parentAccount) {
+    let parent = this.tenantObjectCache.get(cacheKey);
+    if (!parent) {
       const resolutionContext: CircuitContext = {
         tokenHash,
         type: "asset_resolution",
       };
       this.circuitBreaker.assertClosed(resolutionContext);
       await this.distributedGuard.beforeRequest(resolutionContext);
-      const url = this.buildUrl(`/${objectId}`, { fields: "account_id" });
-      const response = await fetch(url, {
+      const accountUrl = this.buildUrl(`/${objectId}`, { fields: "account_id" });
+      const accountResponse = await fetch(accountUrl, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(Math.min(this.timeout, 10_000)),
       });
-      const body = (await response.json()) as { account_id?: unknown };
+      const accountBody = (await accountResponse.json()) as { account_id?: unknown };
       if (
-        !response.ok ||
-        (typeof body.account_id !== "string" &&
-          typeof body.account_id !== "number")
+        accountResponse.ok &&
+        (typeof accountBody.account_id === "string" || typeof accountBody.account_id === "number")
       ) {
-        throw new Error("Requested Meta object is not assigned to this workspace");
+        const rawParent = String(accountBody.account_id);
+        parent = `account:${rawParent.startsWith("act_") ? rawParent : `act_${rawParent}`}`;
+      } else {
+        const ownerUrl = this.buildUrl(`/${objectId}`, { fields: "owner" });
+        const ownerResponse = await fetch(ownerUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(Math.min(this.timeout, 10_000)),
+        });
+        const ownerBody = (await ownerResponse.json()) as { owner?: { id?: unknown } };
+        const ownerId = ownerBody.owner?.id;
+        if (!ownerResponse.ok || (typeof ownerId !== "string" && typeof ownerId !== "number")) {
+          throw new Error("Requested Meta object is not assigned to this workspace");
+        }
+        parent = `instagram:${String(ownerId)}`;
       }
-      const rawParent = String(body.account_id);
-      parentAccount = rawParent.startsWith("act_")
-        ? rawParent
-        : `act_${rawParent}`;
-      this.tenantObjectCache.set(cacheKey, parentAccount);
+      this.tenantObjectCache.set(cacheKey, parent);
     }
-    this.assertAccountAllowed(parentAccount, tenant);
+    if (parent.startsWith("account:")) {
+      this.assertAccountAllowed(parent.slice("account:".length), tenant);
+      return;
+    }
+    const instagramId = parent.slice("instagram:".length);
+    if (
+      !tenant.allowedAssetIds.has(instagramId) ||
+      !tenant.allowedInstagramIds.has(instagramId)
+    ) {
+      throw new Error("Requested Meta object is not assigned to this workspace");
+    }
   }
 
   private async backoff(attempt: number): Promise<void> {

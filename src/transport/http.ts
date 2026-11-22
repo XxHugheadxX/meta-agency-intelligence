@@ -61,6 +61,24 @@ import {
 } from "../store/asset-binding-repo.js";
 import { logger } from "../utils/logger.js";
 import { unsafeIpReason } from "../utils/url-guard.js";
+import {
+  createReportDownloadHandler,
+  FirestoreReportArtifactStore,
+  GcsReportObjectStore,
+} from "../agency/delivery/index.js";
+import {
+  createReportingJobEndpointDependencies,
+  createReportingJobHttpRouter,
+  createReportingBatchStatusHandler,
+  createReportingBatchListHandler,
+  FirestoreReportingBatchRepository,
+  type ReportingJobEndpointDependencies,
+} from "../agency/worker/index.js";
+import {
+  createReportingScheduleEndpointDependencies,
+  createReportingScheduleHttpRouter,
+  type ReportingScheduleEndpointDependencies,
+} from "../agency/scheduler/index.js";
 
 interface PendingAuth {
   fbUserId: string;
@@ -502,11 +520,26 @@ export function buildMetaTokenMiddleware(
 export async function startHttpTransport(
   createServer: () => McpServer,
   port: number,
+  options: {
+    readonly reportingJobs?: ReportingJobEndpointDependencies;
+    readonly reportingSchedules?: ReportingScheduleEndpointDependencies;
+  } = {},
 ): Promise<void> {
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
   const config = resolveSecurityConfig();
   const serverUrl = getServerUrl();
+  const configuredReportingJobs = options.reportingJobs ??
+    createReportingJobEndpointDependencies({
+      getDb: getFirestore,
+      security: config,
+      serverUrl,
+    }) ?? undefined;
+  const configuredReportingSchedules = options.reportingSchedules ??
+    createReportingScheduleEndpointDependencies({
+      getDb: getFirestore,
+      security: config,
+    }) ?? undefined;
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
@@ -535,7 +568,6 @@ export async function startHttpTransport(
   );
   logger.info({ corsAllowedOrigins }, "CORS allowlist configured");
   app.use(cookieParser());
-  app.use(express.json({ limit: "10mb" }));
 
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -556,6 +588,31 @@ export async function startHttpTransport(
       next();
     });
   }
+
+  if (configuredReportingJobs) {
+    app.use(
+      "/internal/agency/reporting/jobs",
+      createRateLimiter(10, 60 * 1000),
+      createReportingJobHttpRouter(
+        configuredReportingJobs.worker,
+        configuredReportingJobs.identities,
+      ),
+    );
+  }
+
+  if (configuredReportingSchedules) {
+    app.use(
+      "/internal/agency/reporting/schedules",
+      createRateLimiter(10, 60 * 60 * 1000),
+      createReportingScheduleHttpRouter(
+        configuredReportingSchedules.scheduler,
+        configuredReportingSchedules.identities,
+        configuredReportingSchedules.options,
+      ),
+    );
+  }
+
+  app.use(express.json({ limit: "10mb" }));
 
   if (config.multiTenantEnabled) {
     if (!isFirestoreEnabled()) {
@@ -783,6 +840,40 @@ export async function startHttpTransport(
     !config.multiTenantEnabled,
   );
   const metaTokenMw = buildMetaTokenMiddleware(serverUrl, config.multiTenantEnabled);
+
+  const reportBucket = process.env.REPORTS_GCS_BUCKET?.trim();
+  if (reportBucket) {
+    if (!config.multiTenantEnabled || !isFirestoreEnabled()) {
+      throw new Error("Private report delivery requires multi-tenant Firestore mode");
+    }
+    const reportArtifacts = new FirestoreReportArtifactStore(
+      getFirestore(),
+      new GcsReportObjectStore(reportBucket),
+    );
+    app.get(
+      "/agency/reporting/batches",
+      createRateLimiter(30, 60 * 1000),
+      auth,
+      createReportingBatchListHandler(
+        new FirestoreReportingBatchRepository(getFirestore()),
+      ),
+    );
+    app.get(
+      "/agency/reporting/batches/:batchId",
+      createRateLimiter(60, 60 * 1000),
+      auth,
+      createReportingBatchStatusHandler(
+        new FirestoreReportingBatchRepository(getFirestore()),
+        reportArtifacts,
+      ),
+    );
+    app.get(
+      "/agency/reports/:artifactId",
+      createRateLimiter(30, 60 * 1000),
+      auth,
+      createReportDownloadHandler(reportArtifacts),
+    );
+  }
 
   app.post("/mcp", auth, metaTokenMw, async (req, res) => {
     try {

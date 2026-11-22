@@ -18,6 +18,7 @@ const KEYS = [
   "META_TOKENS",
   "MCP_API_KEY",
   "DISTRIBUTED_RATE_LIMIT_BACKEND",
+  "META_REQUESTS_PER_MINUTE",
 ] as const;
 
 const originalEnv: Record<(typeof KEYS)[number], string | undefined> =
@@ -31,6 +32,19 @@ const SECRET32 = "session-secret-fixture-1234567890";
 const OAUTH32 = "oauth-secret-fixture-123456789012";
 
 describe("resolveSecurityConfig", () => {
+  it.each(["not-a-number", "NaN", "Infinity", "0", "-1", "1.5", "", " ", "9007199254740992", "1e3", "0x20"])(
+    "rejects an invalid request quota without echoing its value: %s",
+    (value) => {
+      expect(() => resolveSecurityConfig({ META_REQUESTS_PER_MINUTE: value })).toThrow(
+        "META_REQUESTS_PER_MINUTE must be a positive safe integer",
+      );
+    },
+  );
+
+  it("accepts an explicit positive integer request quota", () => {
+    expect(() => resolveSecurityConfig({ META_REQUESTS_PER_MINUTE: " 120 " })).not.toThrow();
+  });
+
   beforeEach(() => {
     for (const k of KEYS) delete process.env[k];
   });

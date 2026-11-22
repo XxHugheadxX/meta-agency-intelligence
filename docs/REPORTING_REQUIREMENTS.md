@@ -39,6 +39,12 @@ No todas las métricas están disponibles para todo tipo de cuenta, placement,
 objetivo o versión de API. El reporte debe mostrar `N/D` y una razón de calidad,
 no convertir datos ausentes en cero.
 
+Para Facebook orgánico, `views` representa vistas según la definición vigente
+de Meta y no se reutiliza como alcance ni impresiones. En contenido post-level
+se conservan `views` e interacciones cuando estén disponibles; alcance, clics u
+otras métricas retiradas permanecen `N/D` hasta que un contrato oficial las
+exponga nuevamente.
+
 ## Definiciones calculadas
 
 - `CTR = clics relevantes / impresiones × 100`.
@@ -52,12 +58,31 @@ El tipo exacto de clic, lead, conversión y ventana de atribución debe guardars
 como dimensión. No mezclar métricas con definiciones distintas en una misma
 serie.
 
+Implementación actual: `meta-insights-v2` conserva en raw sanitizado la política
+`canonical-action-v1` y el tipo de acción seleccionado. Leads y mensajes usan
+el primer tipo presente de una lista priorizada, no la suma de aliases. Si hay
+múltiples objetivos de conversión, el total es N/D; si las filas tienen tipos
+distintos para una métrica, esa métrica agregada también es N/D. Esta política
+requiere conciliación con los objetivos reales antes del piloto.
+
+Alcance es un conteo no aditivo: no se suman personas entre días, anuncios o
+cuentas. Las filas fuente conservan el alcance informado por Meta. El alcance
+y la frecuencia del período sólo se informan cuando existe un snapshot de Meta
+a nivel de cuenta para el rango exacto (`AGENCY_REPORTING_PERIOD_REACH_ENABLED`,
+colección `agency_period_reach`, separada del histórico diario). Sin snapshot
+son N/D. Con varias cuentas el total sigue siendo N/D: el snapshot existe por
+cuenta y no se deduplican personas entre cuentas; cada cuenta lo muestra en su
+ranking. No hay snapshots por campaña, ad set ni anuncio.
+El funnel compara métricas de etapas, no identifica una cohorte de personas.
+
 ## Periodos y tiempo
 
 - Guardar timestamps en UTC.
 - Configurar timezone de presentación por workspace.
 - Semana y mes deben tener límites deterministas.
 - Comparaciones mínimas: periodo anterior y mismo periodo disponible.
+- Un reporte mensual compara meses calendario completos, incluso si tienen
+  distinta duración. Los rangos custom conservan comparación de igual duración.
 - Conservar fecha de extracción, versión de API, moneda, timezone, nivel de
   breakdown y ventana de atribución.
 
@@ -72,6 +97,22 @@ serie.
 - Conciliar gasto y resultados agregados contra el total de cuenta dentro de
   tolerancias definidas.
 - Mantener lineage desde cada celda/KPI hasta la consulta y snapshot fuente.
+- Separar identidades de snapshots por versión API y esquema. Cambiar la
+  identidad exige un backfill/migración revisado; no borrar histórico ni sumar
+  registros antiguos y nuevos automáticamente.
+- El dataset paid default excluye breakdowns. Seleccionar un breakdown requiere
+  el mismo conjunto de claves, atribución, API y esquema en ambos períodos.
+- Los agregados con cobertura parcial deben advertirlo explícitamente; no deben
+  presentarse como totales conciliados ni usar valores ausentes como cero.
+- CPC, CPL, CPM, CTR y conversion rate requieren datos de ambos componentes en
+  todas las filas del dataset seleccionado. Incluso si ambos componentes faltan
+  en las mismas filas, no se extrapola el ratio del subconjunto al período entero.
+- `segmentation-v3` excluye recomendaciones si la muestra del segmento tiene
+  cobertura incompleta de gasto, impresiones, clics o leads. Cero observado sigue
+  siendo un dato válido; denominador cero o dato ausente produce N/D.
+- Batches parciales filtran tanto el período actual como el anterior a la unión
+  de activos orgánicos autorizados de sus conexiones; un fallo de autorización
+  impide generar el workbook y permite reintentar, sin fallback al workspace.
 
 ## Workbook Excel
 
@@ -140,4 +181,3 @@ requieren `ads_management`.
 - El workbook abre sin errores y sus fórmulas/gráficos pasan revisión visual.
 - Las recomendaciones citan evidencia y nunca se presentan como cambios ya
   aplicados.
-

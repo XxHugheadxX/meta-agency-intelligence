@@ -6,8 +6,11 @@
 - **Repositorio base:** fork de `meta-ads-mcp`.
 - **Cliente objetivo:** agencias inmobiliarias pequeñas y agentes individuales.
 - **Piloto inicial:** aproximadamente 20 perfiles o cuentas de Meta.
-- **Estado de referencia:** hardening de seguridad en la rama
-  `security/hardening-v1`, sin cuentas reales conectadas.
+- **Estado de referencia:** seguridad, histórico, reporting, Excel,
+  segmentación, ingesta read-only, pipeline MVP, entrega GCS privada y descarga
+  autenticada implementados en ramas encadenadas; sin cuentas reales conectadas.
+- **Repositorio de trabajo:** `XxHugheadxX/meta-agency-intelligence` privado.
+  El fork público se conserva exclusivamente como upstream de lectura.
 
 ## Problema
 
@@ -56,6 +59,7 @@ responsabilidades:
 
 ```text
 src/agency/
+├── ingestion/
 ├── analytics/
 ├── reporting/
 ├── segmentation/
@@ -74,12 +78,27 @@ src/agency/
 - El token de Meta permanece exclusivamente en backend.
 - Cada token y cada activo autorizado están vinculados a un tenant/workspace.
 - El histórico agregado y la PII de leads no comparten la misma frontera.
+- Los snapshots paid se seleccionan por nivel, breakdown, atribución, versión
+  de API y esquema; nunca se mezclan datasets para aumentar cobertura.
+- El alcance único de varias filas no se obtiene sumando personas. Alcance y
+  frecuencia agregados permanecen N/D hasta incorporar totales únicos por período.
+- Los ratios requieren cobertura completa de numerador y denominador en todas
+  las filas seleccionadas; una cobertura parcial conserva totales con advertencia,
+  no produce ratios ni recomendaciones de optimización sobre esa muestra.
+- El consolidado orgánico usa la unión deduplicada de activos autorizados de las
+  conexiones del batch. Sin resolver de conexiones, el consolidado es paid-only;
+  nunca se amplía automáticamente al workspace completo.
+- Las acciones de mensajes/leads tienen una política canónica versionada; no se
+  suman aliases solapados ni conversiones de objetivos diferentes.
+- Deploy y publicación son opt-in, separados de un push de código al repo privado.
 - Las herramientas nuevas se deniegan en read-only hasta entrar expresamente en
   la allowlist revisada.
 - No se conectarán cuentas reales hasta superar los gates de seguridad y
   staging definidos en `PRODUCT_ROADMAP.md`.
 - Los agentes que trabajen en este repositorio no deben ejecutar `npm` ni
   `npx`; la migración del package manager upstream requiere un cambio separado.
+- Ningún agente debe enviar cambios al upstream público; todos los pushes de
+  producto se limitan al repositorio privado de trabajo.
 
 ## Alcance funcional inicial
 
@@ -107,6 +126,8 @@ src/agency/
 - `docs/SECURITY_REQUIREMENTS.md`: controles obligatorios y gates.
 - `docs/REPORTING_REQUIREMENTS.md`: alcance funcional y definiciones de datos.
 - `docs/PRODUCT_ROADMAP.md`: orden de ejecución y criterios de salida.
+- `docs/MVP_READINESS.md`: avances verificables y pendientes de esta integración.
+- `docs/SECURITY_REMEDIATION_STATUS.md`: controles en código frente a gates operativos.
 - El código y los tests prevalecen sobre documentación histórica si hay una
   discrepancia; la discrepancia debe corregirse en la misma rama.
 
@@ -120,4 +141,3 @@ src/agency/
    privilegio.
 6. Ejecutar las validaciones relevantes sin usar `npm` ni `npx`.
 7. Actualizar roadmap y documentación cuando cambie una decisión de producto.
-

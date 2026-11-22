@@ -53,4 +53,37 @@ describe("InMemoryAssetBindingRepo", () => {
     const [restored] = await repo.listActive("workspace-a");
     expect(restored.createdAt).toBe(created.createdAt);
   });
+
+  it("keeps the explicit reporting-account association across status updates", async () => {
+    const repo = new InMemoryAssetBindingRepo();
+    await repo.save({
+      workspaceId: "workspace-a",
+      kind: "instagram",
+      assetId: "400",
+      assetName: "Inmobiliaria Norte",
+      reportingAccountId: "act_100",
+    });
+    await repo.save({
+      workspaceId: "workspace-a",
+      kind: "instagram",
+      assetId: "400",
+      active: false,
+    });
+    await repo.save({
+      workspaceId: "workspace-a",
+      kind: "instagram",
+      assetId: "400",
+    });
+
+    await expect(repo.listActive("workspace-a")).resolves.toMatchObject([{
+      assetName: "Inmobiliaria Norte",
+      reportingAccountId: "act_100",
+    }]);
+    await expect(repo.save({
+      workspaceId: "workspace-a",
+      kind: "page",
+      assetId: "500",
+      reportingAccountId: "another-account",
+    })).rejects.toThrow("reportingAccountId");
+  });
 });
